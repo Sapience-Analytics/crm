@@ -118,7 +118,7 @@ to ration and nobody to scope it to.
   release and never once ran. Two reasons, either fatal: `onSignedIn` fires on
   `session.create`, so a rep already signed in never triggers it; and `BackfillService`
   does its work in a detached `void (async () => …)()` after the response, on a Nest API
-  that is a Vercel **serverless function** (`apps/api/api/index.ts`) — the tail of that
+  that is a Vercel **serverless function** (`apps/api/serverless/index.ts`) — the tail of that
   chain is not guaranteed to run at all. A cron in the agent is the only trigger here
   that is a fact rather than a hope.
 

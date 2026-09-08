@@ -5,6 +5,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
@@ -39,7 +40,7 @@ process.on("exit", () => {
 });
 
 childProcess.execSync = (command, options) => {
-  if (command.includes(" build api/index.ts")) {
+  if (command.includes(" build serverless/index.ts")) {
     const encoded = command.split("--outfile=")[1].split(" --external ")[0];
     const target = JSON.parse(encoded);
     mkdirSync(dirname(target), { recursive: true });
@@ -135,6 +136,24 @@ test("API output stays inside its project without duplicating the five project c
 		result.calls.map((call) => call.kind),
 		["bundle"],
 	);
+});
+
+test("the bundled handler stays outside Vercel's automatic API directory", () => {
+	const apiDir = dirname(scriptsDir);
+	const nativeApiDir = join(apiDir, "api");
+	const nativeFiles = existsSync(nativeApiDir)
+		? readdirSync(nativeApiDir, { recursive: true })
+		: [];
+	assert.equal(
+		nativeFiles.filter((file) => /\.(?:[cm]?[jt]sx?|py|go|rb|php)$/.test(file))
+			.length,
+		0,
+	);
+	assert.ok(existsSync(join(apiDir, "serverless/index.ts")));
+	const tsconfig = JSON.parse(
+		readFileSync(join(apiDir, "tsconfig.json"), "utf8"),
+	);
+	assert.ok(tsconfig.include.includes("serverless/**/*.ts"));
 });
 
 test("cron changes remain only in vercel.json after building", (t) => {
