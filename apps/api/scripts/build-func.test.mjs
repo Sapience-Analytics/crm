@@ -90,14 +90,12 @@ function runBuild(t, env = {}, sourceConfig = config) {
 	writeFileSync(join(apiDir, "vercel.json"), JSON.stringify(sourceConfig));
 	writeFileSync(join(fixtureRoot, "runner.mjs"), runner);
 	const node = process.versions.bun ? "node" : process.execPath;
+	const childEnv = { PATH: process.env.PATH, ...env };
+	if (process.env.SystemRoot) childEnv.SystemRoot = process.env.SystemRoot;
 	const result = spawnSync(node, [join(fixtureRoot, "runner.mjs")], {
 		cwd: apiDir,
 		encoding: "utf8",
-		env: {
-			...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-			PATH: process.env.PATH,
-			...env,
-		},
+		env: childEnv,
 	});
 	assert.ifError(result.error);
 	const calls = JSON.parse(
