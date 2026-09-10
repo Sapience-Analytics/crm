@@ -12,10 +12,12 @@ import type { AuthedTrpcContext } from "../trpc/context.types";
 import { AuthMiddleware } from "../trpc/middlewares/auth.middleware";
 import { restMeta } from "../trpc/openapi";
 import { ConversationService } from "./conversation.service";
+import { GmailImportService } from "./gmail-import.service";
 import {
 	calendarEventInput,
 	calendarEventOutput,
 	emailThreadOutput,
+	gmailImportOutput,
 	googleConnectionStatusOutput,
 	purgeSyncedDataOutput,
 	revokeAccessOutput,
@@ -36,6 +38,7 @@ export class GoogleRouter {
 		@Inject(GoogleSyncService) private readonly sync: GoogleSyncService,
 		@Inject(ConversationService)
 		private readonly conversations: ConversationService,
+		@Inject(GmailImportService) private readonly history: GmailImportService,
 	) {}
 
 	@Query({
@@ -46,11 +49,33 @@ export class GoogleRouter {
 		return this.connection.status(ctx.user.id);
 	}
 
+	@Query({ output: gmailImportOutput })
+	async importStatus(@Ctx() ctx: AuthedTrpcContext) {
+		return this.history.status(ctx.user.id);
+	}
+
+	@Mutation({ output: gmailImportOutput })
+	async startImport(@Ctx() ctx: AuthedTrpcContext) {
+		return this.history.start(ctx.user.id);
+	}
+
+	@Mutation({ output: gmailImportOutput })
+	async advanceImport(@Ctx() ctx: AuthedTrpcContext) {
+		await this.history.runBatch(ctx.user.id);
+		return this.history.status(ctx.user.id);
+	}
+
+	@Mutation({ output: gmailImportOutput })
+	async stopImport(@Ctx() ctx: AuthedTrpcContext) {
+		return this.history.stop(ctx.user.id);
+	}
+
 	@Mutation({
 		output: purgeSyncedDataOutput,
 		meta: restMeta("POST", "/google/purge-synced-data", ["Google"]),
 	})
 	async purgeSyncedData(@Ctx() ctx: AuthedTrpcContext) {
+		await this.history.assertInactive(ctx.user.id);
 		return this.connection.purgeSyncedData(ctx.user.id);
 	}
 
@@ -59,6 +84,7 @@ export class GoogleRouter {
 		meta: restMeta("POST", "/google/revoke", ["Google"]),
 	})
 	async revokeAccess(@Ctx() ctx: AuthedTrpcContext) {
+		await this.history.assertInactive(ctx.user.id);
 		return this.connection.revoke(ctx.user.id);
 	}
 

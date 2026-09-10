@@ -1167,6 +1167,7 @@ model MailboxSync {
   lastError    String?
   retryAfter   DateTime?
   autoCreate   Boolean          @default(false)
+  historicalImport GmailImport?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1174,6 +1175,30 @@ model MailboxSync {
   @@unique([userId, source])
   @@index([status])
   @@map("mailboxSync")
+}
+
+model GmailImport {
+  id String @id @default(cuid())
+  mailboxId String @unique
+  mailbox MailboxSync @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  after DateTime
+  before DateTime
+  phase String @default("sent")
+  pageToken String?
+  pendingIds String[] @default([])
+  pageLoaded Boolean @default(false)
+  reviewed Int @default(0)
+  imported Int @default(0)
+  skipped Int @default(0)
+  lastError String?
+  retryAfter DateTime?
+  leaseToken String?
+  leaseUntil DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("gmailImport")
 }
 
 model EmailThread {

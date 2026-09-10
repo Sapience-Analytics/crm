@@ -55,13 +55,14 @@ export class GmailClient {
 			before: Date;
 			pageToken?: string;
 			maxResults?: number;
+			sentOnly?: boolean;
 		},
 	): Promise<MailboxResult<MessageList>> {
 		const after = Math.floor(options.after.getTime() / 1000);
 		const before = Math.ceil(options.before.getTime() / 1000);
 
 		return this.api.get<MessageList>(`${BASE}/messages`, accessToken, {
-			q: `${WORK_MAIL_QUERY} after:${after} before:${before}`,
+			q: `${WORK_MAIL_QUERY} after:${after} before:${before}${options.sentOnly ? " in:sent" : " -in:sent"}`,
 			maxResults: options.maxResults ?? 100,
 			pageToken: options.pageToken,
 		});

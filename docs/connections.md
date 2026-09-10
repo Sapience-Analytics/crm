@@ -230,3 +230,20 @@ icon marks are used at these sizes; the wordmarks stay unused.
 
 Docusign is spelled with a lowercase s since its 2024 rebrand. The note-taker is
 **Ergo**.
+# Historical Gmail import
+
+Google connection settings can import the preceding 12 calendar months. The import
+captures a fixed start and end time. A separate `GmailImport` row holds progress;
+the live `MailboxSync.cursor` is never changed by the import.
+
+Sent mail runs before received mail. Both passes retain the work-mail query and
+use the existing Gmail parser and `ThreadWriterService.store` contact filters,
+thread matching, and RFC message deduplication. Each message checkpoints progress.
+Missing messages are skipped. Provider failures retain the pending message and
+apply a retry delay. A separate lease prevents two import workers claiming a job.
+
+The existing mailbox cron advances active imports after successful live Gmail
+sync. The authenticated Continue import button advances one bounded batch now.
+Status and mutations are scoped to the signed-in user's Gmail mailbox. Starting
+again returns the existing job. Stop prevents later batches; active imports must
+stop before Google purge or revoke. No Gmail messages are sent or modified.
