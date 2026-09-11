@@ -231,7 +231,7 @@ export class GmailSyncService {
 		return { written, remaining };
 	}
 
-	private parse(message: GmailMessage): IncomingMessage | null {
+	parse(message: GmailMessage): IncomingMessage | null {
 		const headers = message.payload?.headers;
 
 		const rawMessageId = header(headers, "message-id");

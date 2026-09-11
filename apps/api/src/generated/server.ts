@@ -24,8 +24,9 @@ import { dashboardSummaryInput, dashboardSummaryOutput } from "../dashboard/dash
 import { dealListInput, dealListOutput, dealIdInput, dealDetailOutput, dealCreateInput, dealCreateOutput, dealUpdateArgs, dealMutateOutput, setStageInput, dealSetStageOutput, dealContactsInput, dealContactOptionsOutput, dealAttachContactInput, dealContactLinkOutput, dealDetachContactInput, dealContactRoleInput, dealContactRoleOutput, dealBulkOwnerInput, dealBulkResultOutput, dealBulkStageInput, dealBulkInput } from "../deals/deals.contracts";
 import { enrichmentQueueInput } from "@crm/validation/enrichment-queue";
 import { fieldListInput, fieldListOutput, fieldByKeyInput, serializedFieldOutput, fieldEntityInput, fieldFiltersOutput, fieldIdInput, fieldCoverageOutput, fieldCreateInput, fieldUpdateArgs, fieldReorderInput, fieldReorderOutput, fieldDeleteOutput, fieldBackfillOutput } from "../fields/fields.contracts";
-import { googleConnectionStatusOutput, setAutoCreateInput, suppressDomainInput, suppressDomainOutput, threadInput, emailThreadOutput, calendarEventInput, calendarEventOutput } from "../google/google.contracts";
+import { googleConnectionStatusOutput, gmailImportOutput, setAutoCreateInput, suppressDomainInput, suppressDomainOutput, threadInput, emailThreadOutput, calendarEventInput, calendarEventOutput } from "../google/google.contracts";
 import { purgeSyncedDataOutput, revokeAccessOutput, microsoftConnectionStatusOutput, setOutlookAutoCreateInput } from "../microsoft/microsoft.contracts";
+import { outreachStatusOutput, outreachPageInput, outreachProspectsOutput, outreachResult, campaignUpdateInput, campaignActionInput, campaignReadinessInput, prospectApproveInput, prospectStopInput } from "../outreach/outreach.contracts";
 import { savedViewListInput, savedViewListOutput, savedViewCreateInput, savedViewOutput, savedViewUpdateArgs, savedViewIdInput, savedViewDeleteOutput } from "../saved-views/saved-views.contracts";
 import { agentModelOutput, modelCatalogOutput, setAgentModelInput, researchKeyOutput, setResearchKeyInput, archiveRetentionOutput, setArchiveRetentionDaysInput } from "../settings/settings.contracts";
 import { slackStatusOutput, slackMatchesOutput, slackChannelsInput, slackChannelsOutput, slackJoinChannelInput, slackJoinChannelOutput, slackRefreshPeopleOutput, slackCreateChannelInput, slackCreateChannelOutput, slackDisconnectOutput } from "../slack/slack.contracts";
@@ -532,6 +533,18 @@ const appRouter = t.router({
     status: publicProcedure
       .output(googleConnectionStatusOutput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    importStatus: publicProcedure
+      .output(gmailImportOutput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    startImport: publicProcedure
+      .output(gmailImportOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    advanceImport: publicProcedure
+      .output(gmailImportOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    stopImport: publicProcedure
+      .output(gmailImportOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
     purgeSyncedData: publicProcedure
       .output(purgeSyncedDataOutput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
@@ -574,6 +587,38 @@ const appRouter = t.router({
     setAutoCreate: publicProcedure
       .input(setOutlookAutoCreateInput)
       .output(microsoftConnectionStatusOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
+    }),
+  outreach: t.router({
+    status: publicProcedure
+      .output(outreachStatusOutput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    prospects: publicProcedure
+      .input(outreachPageInput)
+      .output(outreachProspectsOutput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    initialize: publicProcedure
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    update: publicProcedure
+      .input(campaignUpdateInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    action: publicProcedure
+      .input(campaignActionInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    readiness: publicProcedure
+      .input(campaignReadinessInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    qualify: publicProcedure
+      .input(prospectApproveInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    stop: publicProcedure
+      .input(prospectStopInput)
+      .output(outreachResult)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
     }),
   savedViews: t.router({

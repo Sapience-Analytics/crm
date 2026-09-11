@@ -7,6 +7,20 @@ export const setAutoCreateInput = z.object({
 	enabled: z.boolean(),
 });
 
+export const gmailImportOutput = z
+	.object({
+		phase: z.enum(["sent", "received", "complete", "stopped"]),
+		after: z.string(),
+		before: z.string(),
+		reviewed: z.number(),
+		imported: z.number(),
+		skipped: z.number(),
+		lastError: z.string().nullable(),
+		completedAt: z.string().nullable(),
+		busy: z.boolean(),
+	})
+	.nullable();
+
 export const suppressDomainInput = z.object({
 	domain: z.string().trim().min(1),
 	reason: z.string().trim().max(200).optional(),

@@ -22,6 +22,7 @@ type RemovedRecord = { kind: RecordKind; id: string };
 type RemovedRecords = { kind: RecordKind; ids: string[] };
 
 export type CrmCache = {
+	outreach(): Promise<void>;
 	company(id?: string, options?: Options): Promise<void>;
 	contact(id?: string, options?: Options): Promise<void>;
 	deal(id?: string, options?: Options): Promise<void>;
@@ -247,7 +248,7 @@ export function useCrmCache(): CrmCache {
 
 		google: (options) =>
 			run(
-				[trpc.google.status.queryKey()],
+				[trpc.google.status.queryKey(), trpc.google.importStatus.queryKey()],
 				[
 					...activityKeys(),
 					...listKeys(),
@@ -324,6 +325,12 @@ export function useCrmCache(): CrmCache {
 				options,
 			),
 
+		outreach: () =>
+			run(
+				[trpc.outreach.status.queryKey(), trpc.outreach.prospects.pathKey()],
+				[],
+				{},
+			),
 		everything: () => queryClient.invalidateQueries(),
 	};
 }

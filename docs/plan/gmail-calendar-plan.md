@@ -539,7 +539,7 @@ after the rep has seen what the sync matches.
 
 ### 7.1 Shape
 
-The API is a bundled Vercel function (`apps/api/api/index.ts`) — no long-lived
+The API is a bundled Vercel function (`apps/api/serverless/index.ts`) — no long-lived
 process, so no in-memory scheduler. A **Vercel Cron** hits an internal route
 every 5 minutes; the route iterates connected accounts and runs one incremental
 pass each.

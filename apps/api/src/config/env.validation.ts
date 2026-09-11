@@ -18,6 +18,9 @@ export enum NodeEnv {
 }
 
 export class EnvironmentVariables {
+	@IsOptional()
+	@IsString()
+	VERCEL_ENV?: string;
 	@IsEnum(NodeEnv)
 	NODE_ENV: NodeEnv = NodeEnv.Development;
 

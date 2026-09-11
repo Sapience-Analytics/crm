@@ -45,6 +45,7 @@ import { LocalRelativeTime } from "@/components/local-date-time";
 import { isSyncing, SYNC_POLL_MS } from "@/lib/sync-status";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
+import { GmailImport } from "./gmail-import";
 
 const SOURCES = {
 	calendar: {
@@ -402,6 +403,7 @@ export function GoogleConnection({
 					);
 				})}
 
+				<GmailImport />
 				<CardFooter>
 					<div className="-ml-2 flex flex-wrap items-center gap-1 text-muted-foreground">
 						<AlertDialog>

@@ -78,4 +78,17 @@ describe("Auth (e2e)", () => {
 
 		expect(response.status).toBe(401);
 	});
+
+	it("keeps outreach records and campaign actions behind the session", async () => {
+		await request(app.getHttpServer())
+			.get("/api/trpc/outreach.status")
+			.expect(401);
+		await request(app.getHttpServer())
+			.post("/api/trpc/outreach.initialize")
+			.send({})
+			.expect(401);
+		await request(app.getHttpServer())
+			.get("/internal/outreach/dispatch")
+			.expect(503);
+	});
 });
