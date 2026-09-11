@@ -2,6 +2,10 @@
 	"$schema": "https://openapi.vercel.sh/vercel.json",
 	"crons": [
 		{
+			"path": "/internal/outreach/dispatch",
+			"schedule": "*/5 * * * *"
+		},
+		{
 			"path": "/internal/sync/mailboxes",
 			"schedule": "*/5 * * * *"
 		},

@@ -339,6 +339,111 @@ model Company {
   @@map("company")
 }
 
+model OutreachCampaign {
+  id String @id
+  ownerId String
+  senderEmail String
+  status String @default("DRAFT")
+  templates Json
+  approvedHash String?
+  approvedAt DateTime?
+  readiness Json?
+  researchEnabled Boolean @default(false)
+  researchDueAt DateTime @default(now())
+  researchLease String?
+  researchLeaseUntil DateTime?
+  sendLease String?
+  sendLeaseUntil DateTime?
+  lastError String?
+  lastResearchError String?
+  lastTickAt DateTime?
+  lastResearchAt DateTime?
+  pilotPassedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  prospects OutreachProspect[]
+  reports OutreachReport[]
+  @@map("outreachCampaign")
+}
+
+model OutreachProspect {
+  id String @id @default(cuid())
+  campaignId String
+  campaign OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  domain String @unique
+  email String? @unique
+  companyId String?
+  contactId String?
+  evidence Json
+  consent Json?
+  status String @default("HELD")
+  manual Boolean @default(false)
+  pilotSlot Int? @unique
+  nextStage Int @default(0)
+  nextDueAt DateTime @default(now())
+  initialSentAt DateTime?
+  lastCheckedAt DateTime?
+  stopReason String?
+  replyText String?
+  replyDraft String?
+  replyDraftLeaseUntil DateTime?
+  replyDraftDueAt DateTime @default(now())
+  stoppedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deliveries OutreachDelivery[]
+  @@index([campaignId, status, nextDueAt])
+  @@map("outreachProspect")
+}
+
+model OutreachDelivery {
+  id String @id @default(cuid())
+  prospectId String
+  prospect OutreachProspect @relation(fields: [prospectId], references: [id], onDelete: Restrict)
+  stage Int
+  status String @default("SENDING")
+  rfcMessageId String @unique
+  gmailMessageId String?
+  gmailThreadId String?
+  subject String
+  body String
+  approvalHash String
+  sentAt DateTime?
+  loggedAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([prospectId, stage])
+  @@index([status, createdAt])
+  @@map("outreachDelivery")
+}
+
+model OutreachSuppression {
+  email String @id
+  reason String
+  createdAt DateTime @default(now())
+  @@map("outreachSuppression")
+}
+
+model OutreachBudget {
+  id String @id
+  reservedMicroUsd Int @default(0)
+  actualMicroUsd Int @default(0)
+  calls Int @default(0)
+  updatedAt DateTime @updatedAt
+  @@map("outreachBudget")
+}
+
+model OutreachReport {
+  id String @id
+  campaignId String
+  campaign OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  week DateTime
+  summary Json
+  createdAt DateTime @default(now())
+  @@map("outreachReport")
+}
+
 model CompanyEnrichment {
   companyId String   @id
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

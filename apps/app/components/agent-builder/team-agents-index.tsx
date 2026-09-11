@@ -22,6 +22,9 @@ export function TeamAgentsIndex({ initialAgents }: { initialAgents: Agents }) {
 
 	return (
 		<>
+			<Link href={workspaceUrl("/agents/geotab")}>
+				Geotab prospecting: research, email sequences and replies
+			</Link>
 			{rows.length ? (
 				<div className="overflow-hidden rounded-lg border bg-card">
 					{rows.map((agent) => (
