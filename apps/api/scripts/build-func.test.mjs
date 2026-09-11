@@ -104,7 +104,7 @@ function runBuild(t, env = {}, sourceConfig = config) {
 	return { ...result, calls, fixtureRoot, apiDir };
 }
 
-test("API output stays inside its project without duplicating the five project crons", (t) => {
+test("API output stays inside its project without duplicating the project crons", (t) => {
 	const result = runBuild(t);
 	assert.equal(result.status, 0, result.stderr);
 	const outputDir = join(result.apiDir, ".vercel/output");
@@ -113,11 +113,18 @@ test("API output stays inside its project without duplicating the five project c
 	);
 	assert.equal(output.version, 3);
 	assert.deepEqual(output.routes, [{ src: "/(.*)", dest: "/api/index" }]);
-	assert.equal(config.crons.length, 5);
+	assert.equal(config.crons.length, 6);
+	assert.ok(
+		config.crons.some(
+			(cron) =>
+				cron.path === "/internal/outreach/dispatch" &&
+				cron.schedule === "*/5 * * * *",
+		),
+	);
 	assert.equal(Object.hasOwn(output, "crons"), false);
 	assert.equal(
 		new Set(config.crons.map((cron) => `${cron.path}:${cron.schedule}`)).size,
-		5,
+		6,
 	);
 	const functionDir = join(outputDir, "functions/api/index.func");
 	const runtime = JSON.parse(

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/Sapience-Analytics/crm/compare/v1.15.3...v1.16.0) (2026-09-11)
+
+
+### Features
+
+* **outreach:** add guarded Geotab prospecting and Gmail sequences ([#1](https://github.com/Sapience-Analytics/crm/issues/1)) ([f9b6e26](https://github.com/Sapience-Analytics/crm/commit/f9b6e2645cef800b3248782f059a327c178200cf))
+
 ## [1.15.3](https://github.com/trycompai/crm/compare/v1.15.2...v1.15.3) (2026-08-21)
 
 
