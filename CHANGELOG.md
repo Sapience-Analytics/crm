@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/Sapience-Analytics/crm/compare/v1.18.6...v1.19.0) (2026-09-12)
+
+
+### Features
+
+* verify fleet contacts before personalised outreach ([#38](https://github.com/Sapience-Analytics/crm/issues/38)) ([1aa9afe](https://github.com/Sapience-Analytics/crm/commit/1aa9afef536b1e82a939f1e41c41a45780c318d5))
+
 ## [1.18.6](https://github.com/Sapience-Analytics/crm/compare/v1.18.5...v1.18.6) (2026-09-12)
 
 
