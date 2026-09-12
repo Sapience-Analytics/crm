@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.4](https://github.com/Sapience-Analytics/crm/compare/v1.18.3...v1.18.4) (2026-09-12)
+
+
+### Fixes
+
+* **outreach:** reject repeated offers and regenerate unreviewed drafts ([#29](https://github.com/Sapience-Analytics/crm/issues/29)) ([d86b3aa](https://github.com/Sapience-Analytics/crm/commit/d86b3aaf33ddd2211220c56b7532a71d0d1cab38))
+
 ## [1.18.3](https://github.com/Sapience-Analytics/crm/compare/v1.18.2...v1.18.3) (2026-09-12)
 
 
