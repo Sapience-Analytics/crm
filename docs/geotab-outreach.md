@@ -7,7 +7,7 @@ The campaign starts paused. Creating the campaign does not send email or call re
 ## Workflow
 
 The agent's existing minute schedule checks research jobs and reply drafts. Research runs at most hourly.
-Perplexity Sonar finds up to five prospects per request. The weekly target is 50 new WA companies.
+The Perplexity Agent API finds up to five prospects per request. The weekly target is 50 new WA companies.
 The worker verifies source quotations, WA location text and published email addresses against the company's website.
 Unverified records stay on hold. Vehicle counts stay unknown during discovery. Plant and employee counts never become vehicle counts.
 
@@ -61,8 +61,22 @@ Opt-outs and bounces create permanent campaign suppression rows. Adding a contac
 ## Spending
 
 The existing Vercel AI Gateway project limit remains US$10 monthly. Context, hosting and storage remain separate.
-Research reserves US$0.05 before each bounded Sonar request against a US$10 monthly ledger.
+Research reserves US$0.05 before each bounded Agent API request against a US$10 monthly ledger.
 Reported provider costs reconcile the reservation. Missing usage and uncertain failures retain the full reservation.
+The request pins `openai/gpt-5.6-luna` with default processing. It uses no preset, fallback model or conversation history.
+The provider receives a structural JSON schema. Local Zod validation still enforces URLs, email syntax, text lengths and prospect limits.
+Limits are one research step, no parallel tools, 2,500 output tokens and a 16,000-byte serialized request.
+The only tool is web search: 10 results, 6,000 context tokens and 1,200 tokens per page.
+The September 12, 2026 price estimate uses two model passes: US$0.20/million input tokens and US$1.20/million output tokens.
+One search invocation adds US$0.0025. The conservative token estimate totals US$0.0166 before provider prompt overhead.
+The US$0.05 reservation includes overhead headroom. It is an estimate, not a provider-enforced dollar ceiling.
+An observed cost above the reservation or a changed model or service tier pauses research for review.
+Failed or incomplete responses settle reported USD costs but save no prospects. HTTP errors expose safe status and code diagnostics.
+Provider error bodies, API keys and source text never enter these diagnostics.
+Current contracts: [Agent API](https://docs.perplexity.ai/api-reference/agent-post),
+[model prices](https://docs.perplexity.ai/docs/agent-api/models),
+[search limits](https://docs.perplexity.ai/docs/agent-api/tools/web-search) and
+[tool prices](https://docs.perplexity.ai/docs/getting-started/pricing).
 Reply drafting uses GPT-5.4 mini, reserves US$0.10 and checks its published price before calling AI Gateway.
 Reply reservations remain conservative charges in the internal ledger. The UI distinguishes confirmed costs from charged or reserved amounts.
 Requests use bounded output and no automatic AI retries. Reaching an allowance stops new paid work.
@@ -74,6 +88,7 @@ Use a separate PostgreSQL database whose name ends in `_test`. Never use the pro
 The outreach integration tests mock all external email and research requests.
 They cover leases, manual exclusions, daily limits, uncertain delivery, reply stops, suppression, stale sync and concurrent budget reservations.
 Source tests reject unsupported quotations, missing emails and unrelated domains.
+Research tests cover Agent output parsing, failed responses, usage accounting, input limits, budget exhaustion and model or price drift.
 Policy tests cover Perth time, follow-up timing, template fields and message-header injection.
 
 Controlled live delivery and sender authentication still require verification before launch.
