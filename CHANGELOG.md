@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/Sapience-Analytics/crm/compare/v1.17.0...v1.17.1) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** migrate Geotab research to Perplexity Agent API ([aeeafec](https://github.com/Sapience-Analytics/crm/commit/aeeafece5eb0ae46bda4b7e80c4d15b01016cb38))
+
 ## [1.17.0](https://github.com/Sapience-Analytics/crm/compare/v1.16.0...v1.17.0) (2026-09-12)
 
 
