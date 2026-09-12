@@ -19,7 +19,7 @@ export const PERSONALISATION = {
 export const DRAFTING = {
 	model: OUTREACH.replyModel,
 	maxOutputTokens: 3000,
-	reviewOutputTokens: 600,
+	reviewOutputTokens: 3000,
 	replyOutputTokens: 700,
 	maxInputBytes: 20_000,
 	inputOverheadTokens: 1000,
