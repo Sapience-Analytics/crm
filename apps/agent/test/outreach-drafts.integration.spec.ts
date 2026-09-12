@@ -156,6 +156,12 @@ test("reserves before both paid calls and atomically persists three natural draf
 			OUTREACH.aiReserveMicroUsd,
 		);
 		expect((await record()).emailDrafts).toBeNull();
+		if (request.maxOutputTokens === DRAFTING.reviewOutputTokens)
+			expect(JSON.parse(request.prompt)).toMatchObject({
+				company: evidence.company,
+				verifiedSourceQuote: quote,
+				approvedTemplates: DEFAULT_TEMPLATES,
+			});
 		return {
 			text: JSON.stringify(
 				request.maxOutputTokens === DRAFTING.reviewOutputTokens
@@ -300,7 +306,61 @@ test("independent grounding rejection holds all stages without template fallback
 		emailDraftStatus: "HELD",
 		emailDrafts: null,
 	});
-	expect((await record()).emailDraftError).toContain("grounding review");
+	expect((await record()).emailDraftError).toBe(
+		"AI grounding review rejected: stage 0 opening. Sending stays held.",
+	);
+});
+
+test("grounding diagnostics name every rejected fixed flag and preserve the paid-call ledger", async () => {
+	generate.mockImplementation(async (request) => ({
+		text: JSON.stringify(
+			request.maxOutputTokens === DRAFTING.reviewOutputTokens
+				? {
+						grounded: false,
+						intentPreserved: false,
+						noUnsupportedClaims: false,
+						stages: review.stages.map(() => ({
+							opening: false,
+							question: false,
+							intent: false,
+						})),
+					}
+				: sequence,
+		),
+		costMicroUsd: 3000,
+		finishReason: "stop",
+	}));
+	await draftOutreachSequence();
+	expect(await record()).toMatchObject({
+		emailDraftStatus: "HELD",
+		emailDrafts: null,
+		emailDraftError:
+			"AI grounding review rejected: source grounding, approved intent, unsupported claims, stage 0 opening, stage 0 question, stage 0 intent, stage 1 opening, stage 1 question, stage 1 intent, stage 2 opening, stage 2 question, stage 2 intent. Sending stays held.",
+	});
+	expect(await budget()).toMatchObject({
+		calls: 2,
+		reservedMicroUsd: 6000,
+		actualMicroUsd: 6000,
+	});
+});
+
+test("unrecognized review prose stays hidden instead of entering safe flag diagnostics", async () => {
+	generate.mockImplementation(async (request) => ({
+		text: JSON.stringify(
+			request.maxOutputTokens === DRAFTING.reviewOutputTokens
+				? { ...review, reason: "private provider prose with Bearer secret" }
+				: sequence,
+		),
+		costMicroUsd: 3000,
+		finishReason: "stop",
+	}));
+	await draftOutreachSequence();
+	const row = await record();
+	expect(row.emailDraftStatus).toBe("HELD");
+	expect(row.emailDraftError).toBe(
+		"AI drafting or validation failed. Drafts stay held; no template fallback occurs.",
+	);
+	expect(row.emailDrafts).toBeNull();
 });
 
 test("unsupported claim fails before the second paid review", async () => {
