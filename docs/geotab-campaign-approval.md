@@ -1,6 +1,7 @@
 # Geotab email campaign — approval copy
 
-Status: draft. Approval is required before prospect emails start.
+Templates approved in the production CRM on 12 September 2026. Sending remains paused pending launch checks and eligible prospects.
+The campaign's stored approval controls sending. Editing templates revokes that approval.
 
 Sender: Danny, Sapience Analytics, danny@sapienceanalytics.com.au.
 
