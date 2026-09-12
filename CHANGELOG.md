@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.1](https://github.com/Sapience-Analytics/crm/compare/v1.18.0...v1.18.1) (2026-09-12)
+
+
+### Fixes
+
+* **outreach:** validate pricing only for the selected text model ([#20](https://github.com/Sapience-Analytics/crm/issues/20)) ([af29627](https://github.com/Sapience-Analytics/crm/commit/af29627a9c2f0c6d9ea05ec3b8d6613b673ae102))
+
 ## [1.18.0](https://github.com/Sapience-Analytics/crm/compare/v1.17.3...v1.18.0) (2026-09-12)
 
 
