@@ -64,6 +64,7 @@ The existing Vercel AI Gateway project limit remains US$10 monthly. Context, hos
 Research reserves US$0.05 before each bounded Agent API request against a US$10 monthly ledger.
 Reported provider costs reconcile the reservation. Missing usage and uncertain failures retain the full reservation.
 The request pins `openai/gpt-5.6-luna` with default processing. It uses no preset, fallback model or conversation history.
+The provider receives a structural JSON schema. Local Zod validation still enforces URLs, email syntax, text lengths and prospect limits.
 Limits are one research step, no parallel tools, 2,500 output tokens and a 16,000-byte serialized request.
 The only tool is web search: 10 results, 6,000 context tokens and 1,200 tokens per page.
 The September 12, 2026 price estimate uses two model passes: US$0.20/million input tokens and US$1.20/million output tokens.
