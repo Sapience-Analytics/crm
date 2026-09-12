@@ -4,6 +4,7 @@ import {
 	readinessSchema,
 	templatesSchema,
 } from "@crm/validation/outreach";
+import { draftViewSchema } from "@crm/validation/outreach-drafts";
 import { z } from "zod";
 
 export const campaignUpdateInput = z.object({ templates: templatesSchema });
@@ -24,6 +25,10 @@ export const prospectApproveInput = z.object({
 	consent: consentSchema.omit({ verifiedBy: true, verifiedAt: true }),
 });
 export const prospectStopInput = z.object({ id: z.string().min(1) });
+export const reviewDraftsInput = z.object({
+	id: z.string().min(1),
+	hash: z.string().length(64),
+});
 export const outreachPageInput = z.object({
 	page: z.number().int().min(0).default(0),
 });
@@ -37,6 +42,11 @@ export const outreachStatusOutput = z.object({
 	researchEnabled: z.boolean(),
 	sendConnected: z.boolean(),
 	ready: z.boolean(),
+	pilotReady: z.boolean(),
+	pilotCount: z.number(),
+	draftReadyCount: z.number(),
+	reviewedCount: z.number(),
+	aiPausedReason: z.string().nullable(),
 	lastError: z.string().nullable(),
 	researchError: z.string().nullable(),
 	lastTickAt: z.string().nullable(),
@@ -65,13 +75,15 @@ export const outreachProspectsOutput = z.object({
 			manual: z.boolean(),
 			sourceUrl: z.string(),
 			sourceQuote: z.string(),
+			contactSourceUrl: z.string().nullable(),
+			contactRoleQuote: z.string().nullable(),
 			fleetBand: z.string(),
 			fit: z.string(),
 			verified: z.boolean(),
 			consent: z.json().nullable(),
 			replyDraft: z.string().nullable(),
 			stopReason: z.string().nullable(),
-			preview: z.object({ subject: z.string(), body: z.string() }),
+			draft: draftViewSchema,
 		}),
 	),
 });

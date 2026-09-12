@@ -26,7 +26,8 @@ import { enrichmentQueueInput } from "@crm/validation/enrichment-queue";
 import { fieldListInput, fieldListOutput, fieldByKeyInput, serializedFieldOutput, fieldEntityInput, fieldFiltersOutput, fieldIdInput, fieldCoverageOutput, fieldCreateInput, fieldUpdateArgs, fieldReorderInput, fieldReorderOutput, fieldDeleteOutput, fieldBackfillOutput } from "../fields/fields.contracts";
 import { googleConnectionStatusOutput, gmailImportOutput, setAutoCreateInput, suppressDomainInput, suppressDomainOutput, threadInput, emailThreadOutput, calendarEventInput, calendarEventOutput } from "../google/google.contracts";
 import { purgeSyncedDataOutput, revokeAccessOutput, microsoftConnectionStatusOutput, setOutlookAutoCreateInput } from "../microsoft/microsoft.contracts";
-import { outreachStatusOutput, outreachPageInput, outreachProspectsOutput, outreachResult, campaignUpdateInput, campaignActionInput, campaignReadinessInput, prospectApproveInput, prospectStopInput } from "../outreach/outreach.contracts";
+import { importCandidatesInput, importCandidatesOutput } from "@crm/validation/outreach-intake";
+import { outreachStatusOutput, outreachPageInput, outreachProspectsOutput, outreachResult, campaignUpdateInput, campaignActionInput, campaignReadinessInput, prospectApproveInput, prospectStopInput, reviewDraftsInput } from "../outreach/outreach.contracts";
 import { launchTestsOutput, startLaunchTestsInput, launchTestIdInput, launchTestHeadersInput } from "@crm/validation/outreach-tests";
 import { savedViewListInput, savedViewListOutput, savedViewCreateInput, savedViewOutput, savedViewUpdateArgs, savedViewIdInput, savedViewDeleteOutput } from "../saved-views/saved-views.contracts";
 import { agentModelOutput, modelCatalogOutput, setAgentModelInput, researchKeyOutput, setResearchKeyInput, archiveRetentionOutput, setArchiveRetentionDaysInput } from "../settings/settings.contracts";
@@ -590,6 +591,12 @@ const appRouter = t.router({
       .output(microsoftConnectionStatusOutput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
     }),
+  outreachIntake: t.router({
+    importCandidates: publicProcedure
+      .input(importCandidatesInput)
+      .output(importCandidatesOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
+    }),
   outreach: t.router({
     status: publicProcedure
       .output(outreachStatusOutput)
@@ -624,6 +631,14 @@ const appRouter = t.router({
     launchTests: publicProcedure
       .output(launchTestsOutput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    reviewDrafts: publicProcedure
+      .input(reviewDraftsInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    retryDrafts: publicProcedure
+      .input(prospectStopInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
     startLaunchTests: publicProcedure
       .input(startLaunchTestsInput)
       .output(outreachResult)

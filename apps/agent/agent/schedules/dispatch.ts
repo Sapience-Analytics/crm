@@ -7,7 +7,9 @@ import {
 	queueDueAgentRuns,
 } from "../lib/custom-agent-dispatch";
 import { brief, drainAll, taskAuth } from "../lib/dispatch";
+import { draftOutreachSequence } from "../lib/outreach-drafts";
 import { qualifyRequestedProspect } from "../lib/outreach-eligibility";
+import { runOutreachIntake } from "../lib/outreach-intake";
 import { draftOutreachReply } from "../lib/outreach-replies";
 import { runOutreachResearch } from "../lib/outreach-research";
 import { reconcileStaleTasks } from "../lib/stale-tasks";
@@ -18,6 +20,8 @@ export default defineSchedule({
 		waitUntil(
 			Promise.all([
 				qualifyRequestedProspect(),
+				runOutreachIntake(),
+				draftOutreachSequence(),
 				runOutreachResearch(),
 				draftOutreachReply(),
 				sweepBlankFacts(),

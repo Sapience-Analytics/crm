@@ -96,6 +96,11 @@ export const evidenceSchema = z.object({
 	fit: z.string().min(20).max(1500),
 	sourceUrl: z.url().refine((url) => url.startsWith("https://")),
 	sourceQuote: z.string().min(20).max(600),
+	contactSourceUrl: z
+		.url()
+		.refine((url) => url.startsWith("https://"))
+		.optional(),
+	contactRoleQuote: z.string().min(5).max(600).optional(),
 	waQuote: z.string().min(5).max(300),
 	checkedAt: z.iso.datetime(),
 	verified: z.boolean(),

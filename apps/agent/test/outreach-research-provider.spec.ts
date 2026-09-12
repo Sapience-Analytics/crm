@@ -106,7 +106,12 @@ test("pins bounded Agent API configuration with no preset or fallback", () => {
 	expect(
 		Object.keys(schema.properties.prospects.items.properties).sort(),
 	).toEqual(
-		Object.keys(researchResultSchema.shape.prospects.element.shape).sort(),
+		Object.keys(
+			researchResultSchema.shape.prospects.element.omit({
+				contactSourceUrl: true,
+				contactRoleQuote: true,
+			}).shape,
+		).sort(),
 	);
 	const encoded = JSON.stringify(schema);
 	for (const keyword of [
