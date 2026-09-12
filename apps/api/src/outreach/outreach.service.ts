@@ -542,32 +542,83 @@ export class OutreachService {
 
 	async retryDrafts(userId: string, id: string) {
 		await this.assertOwner(userId);
-		const changed = await this.db.outreachProspect.updateMany({
-			where: {
-				id,
-				campaignId: OUTREACH.id,
-				initialSentAt: null,
-				status: { in: ["READY", "MANUAL"] },
-				OR: [
-					{ emailDraftLeaseUntil: null },
-					{ emailDraftLeaseUntil: { lt: new Date() } },
-				],
-			},
-			data: {
-				emailDraftStatus: "PENDING",
-				emailDraftHash: null,
-				emailDrafts: Prisma.DbNull,
-				emailDraftAttempts: 0,
-				emailDraftDueAt: new Date(),
-				emailDraftReviewedHash: null,
-				emailDraftReviewedAt: null,
-				emailDraftError: null,
-			},
-		});
-		if (!changed.count)
-			throw new BadRequestException(
-				"Only unsent eligible prospects without an active draft lease can retry drafting.",
+		await this.db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${OUTREACH.id} FOR UPDATE`;
+			await tx.$queryRaw`SELECT id FROM "outreachProspect" WHERE id = ${id} FOR UPDATE`;
+			const campaign = await tx.outreachCampaign.findUniqueOrThrow({
+				where: { id: OUTREACH.id },
+			});
+			const row = await tx.outreachProspect.findUniqueOrThrow({
+				where: { id, campaignId: OUTREACH.id },
+			});
+			const now = new Date();
+			if (
+				row.initialSentAt ||
+				!["READY", "MANUAL"].includes(row.status) ||
+				(row.emailDraftLeaseUntil && row.emailDraftLeaseUntil >= now) ||
+				(await tx.outreachDelivery.count({ where: { prospectId: id } }))
+			)
+				throw new BadRequestException(
+					"Only unsent eligible prospects without a delivery or active draft lease can retry drafting.",
+				);
+			const draft = currentDraft(
+				row,
+				templatesSchema.parse(campaign.templates),
 			);
+			if (
+				draft &&
+				row.emailDraftReviewedAt &&
+				row.emailDraftReviewedHash === draftReviewHash(draft)
+			)
+				throw new BadRequestException(
+					"Only unreviewed ready drafts can be regenerated.",
+				);
+			const evidence = evidenceSchema.safeParse(row.evidence);
+			const consent = consentSchema.safeParse(row.consent);
+			if (
+				!evidence.success ||
+				!consent.success ||
+				!contactEligible(evidence.data, consent.data)
+			)
+				throw new BadRequestException(
+					"Current verified research and contact eligibility are required to retry drafting.",
+				);
+			await verifiedOutreachContact(tx, row, userId);
+			if (
+				!row.email ||
+				(await tx.outreachSuppression.findUnique({
+					where: { email: row.email },
+				})) ||
+				(await tx.suppressedContact.findUnique({
+					where: { email: row.email },
+				})) ||
+				(await tx.suppressedDomain.findFirst({
+					where: {
+						domain: { in: [row.domain, row.email.split("@")[1] ?? row.domain] },
+					},
+				}))
+			)
+				throw new BadRequestException("This address is suppressed.");
+			await tx.outreachCampaign.update({
+				where: { id: OUTREACH.id },
+				data: { status: "PAUSED" },
+			});
+			await tx.outreachProspect.update({
+				where: { id },
+				data: {
+					emailDraftStatus: "PENDING",
+					emailDraftHash: null,
+					emailDrafts: Prisma.DbNull,
+					emailDraftAttempts: 0,
+					emailDraftDueAt: now,
+					emailDraftLease: null,
+					emailDraftLeaseUntil: null,
+					emailDraftReviewedHash: null,
+					emailDraftReviewedAt: null,
+					emailDraftError: null,
+				},
+			});
+		});
 		return { ok: true };
 	}
 }

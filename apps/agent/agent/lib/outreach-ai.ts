@@ -40,6 +40,14 @@ const costSchema = z.object({
 		]),
 	}),
 });
+const requestErrorFactSchema = z.object({
+	name: z.enum(["AbortError", "TimeoutError", "other"]).catch("other"),
+	statusCode: z.number().int().min(400).max(599).optional().catch(undefined),
+});
+const requestErrorSchema = requestErrorFactSchema.extend({
+	cause: requestErrorFactSchema.nullish().catch(null),
+	lastError: requestErrorFactSchema.nullish().catch(null),
+});
 export class OutreachAiError extends Error {}
 
 export function catalogPrice(catalog: z.infer<typeof catalogSchema>) {
@@ -61,6 +69,7 @@ type TextRequest = {
 
 export const gatewayText = {
 	async generate(request: TextRequest) {
+		const abortSignal = AbortSignal.timeout(OUTREACH.timeoutMs);
 		try {
 			const result = await generateText({
 				instructions: request.instructions,
@@ -68,7 +77,7 @@ export const gatewayText = {
 				maxOutputTokens: request.maxOutputTokens,
 				model: DRAFTING.model,
 				maxRetries: 0,
-				abortSignal: AbortSignal.timeout(OUTREACH.timeoutMs),
+				abortSignal,
 				providerOptions: {
 					gateway: { only: ["openai"] },
 					openai: { serviceTier: "default", reasoningEffort: "low" },
@@ -83,9 +92,23 @@ export const gatewayText = {
 					? Math.ceil(cost.data.gateway.cost * 1_000_000)
 					: null,
 			};
-		} catch {
+		} catch (error) {
+			const parsed = requestErrorSchema.safeParse(error);
+			const facts = parsed.success
+				? [parsed.data, parsed.data.cause, parsed.data.lastError]
+				: [];
+			const status = facts.find((fact) => fact?.statusCode)?.statusCode;
+			const reason =
+				abortSignal.aborted ||
+				facts.some((fact) => fact?.name === "TimeoutError")
+					? "timeout"
+					: facts.some((fact) => fact?.name === "AbortError")
+						? "aborted"
+						: status
+							? `HTTP ${status}`
+							: "unclassified";
 			throw new OutreachAiError(
-				"AI request failed. Its reservation remains charged; no immediate retry occurs.",
+				`AI ${request.phase} request failed (${reason}). Its reservation remains charged; no immediate retry occurs.`,
 			);
 		}
 	},

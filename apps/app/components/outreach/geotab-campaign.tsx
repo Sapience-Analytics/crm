@@ -337,17 +337,26 @@ export function GeotabCampaign() {
 							</Button>
 						)}
 						{["READY", "MANUAL"].includes(prospect.status) &&
-							prospect.draft.status !== "READY" && (
-								<Button
-									variant="outline"
-									disabled={
-										retryDrafts.isPending ||
-										prospect.draft.status === "GENERATING"
-									}
-									onClick={() => retryDrafts.mutate({ id: prospect.id })}
-								>
-									Retry held AI drafts
-								</Button>
+							(prospect.draft.status !== "READY" ||
+								!prospect.draft.reviewedAt) && (
+								<>
+									<Button
+										variant="outline"
+										disabled={
+											retryDrafts.isPending ||
+											prospect.draft.status === "GENERATING"
+										}
+										onClick={() => retryDrafts.mutate({ id: prospect.id })}
+									>
+										{prospect.draft.status === "READY"
+											? "Regenerate drafts"
+											: "Retry held AI drafts"}
+									</Button>
+									<p>
+										Pauses sending and queues all three drafts for a new preview
+										review.
+									</p>
+								</>
 							)}
 						{prospect.status === "HELD" &&
 							prospect.verified &&

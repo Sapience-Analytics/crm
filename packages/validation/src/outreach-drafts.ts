@@ -98,6 +98,14 @@ export const draftViewSchema = z.object({
 
 export class DraftValidationError extends Error {}
 
+function comparableCopy(value: string) {
+	return value
+		.normalize("NFKC")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim();
+}
+
 export function groundedSequence(
 	sequence: z.infer<typeof generatedSequenceSchema>,
 	templates: z.infer<typeof templatesSchema>,
@@ -125,9 +133,27 @@ export function groundedSequence(
 		throw new DraftValidationError(
 			"The initial template must retain the approved Sapience Analytics and Geotab offer paragraph.",
 		);
+	const offerSentences = offer
+		.split(/[.!?](?:\s+|$)/)
+		.map(comparableCopy)
+		.filter(Boolean);
 	return sequence.stages.map((stage) => {
 		const stageLabel = `Stage ${stage.stage}`;
 		const dynamic = `${stage.opening} ${stage.question}`;
+		if (
+			/\bSapience\s+Analytics\b|\b(?:I['’]m|I am|my name is|this is)\s+Danny\b|\bDanny\s+from\b/i.test(
+				dynamic,
+			) ||
+			/\b(?:I|we)\s+(?:(?:can|will)\s+)?(?:help|support|assist|provide|offer|implement|supply)\b[^.!?\r\n]*\bGeotab\b/i.test(
+				dynamic,
+			) ||
+			offerSentences.some((sentence) =>
+				comparableCopy(dynamic).includes(sentence),
+			)
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: AI draft repeats the fixed sender introduction or Geotab offer.`,
+			);
 		if (
 			![stage.openingSourceQuote, stage.questionSourceQuote].every((quote) =>
 				evidence.sourceQuote.includes(quote),
