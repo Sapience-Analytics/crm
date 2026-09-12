@@ -56,6 +56,7 @@ export async function draftOutreachReply() {
 			reply: prospect.replyText,
 		});
 		const text = await outreachAiText({
+			phase: "reply",
 			instructions,
 			prompt,
 			maxOutputTokens: DRAFTING.replyOutputTokens,

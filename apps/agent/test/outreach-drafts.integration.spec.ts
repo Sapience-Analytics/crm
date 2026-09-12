@@ -122,11 +122,7 @@ beforeEach(async () => {
 		}),
 	);
 	generate.mockImplementation(async (request) => ({
-		text: JSON.stringify(
-			request.maxOutputTokens === DRAFTING.reviewOutputTokens
-				? review
-				: sequence,
-		),
+		text: JSON.stringify(request.phase === "review" ? review : sequence),
 		costMicroUsd: 3000,
 		finishReason: "stop",
 	}));
@@ -156,18 +152,17 @@ test("reserves before both paid calls and atomically persists three natural draf
 			OUTREACH.aiReserveMicroUsd,
 		);
 		expect((await record()).emailDrafts).toBeNull();
-		if (request.maxOutputTokens === DRAFTING.reviewOutputTokens)
+		if (request.phase === "review") {
+			expect(request.maxOutputTokens).toBe(DRAFTING.reviewOutputTokens);
+			expect(request.maxOutputTokens).toBe(DRAFTING.maxOutputTokens);
 			expect(JSON.parse(request.prompt)).toMatchObject({
 				company: evidence.company,
 				verifiedSourceQuote: quote,
 				approvedTemplates: DEFAULT_TEMPLATES,
 			});
+		}
 		return {
-			text: JSON.stringify(
-				request.maxOutputTokens === DRAFTING.reviewOutputTokens
-					? review
-					: sequence,
-			),
+			text: JSON.stringify(request.phase === "review" ? review : sequence),
 			costMicroUsd: 3000,
 			finishReason: "stop",
 		};
@@ -238,7 +233,7 @@ for (const drift of [
 ] as const) {
 	test(`${drift} drift during generation cannot commit ready drafts`, async () => {
 		generate.mockImplementation(async (request) => {
-			if (request.maxOutputTokens === DRAFTING.reviewOutputTokens) {
+			if (request.phase === "review") {
 				if (drift === "templates")
 					await db.outreachCampaign.update({
 						where: { id: OUTREACH.id },
@@ -270,11 +265,7 @@ for (const drift of [
 					});
 			}
 			return {
-				text: JSON.stringify(
-					request.maxOutputTokens === DRAFTING.reviewOutputTokens
-						? review
-						: sequence,
-				),
+				text: JSON.stringify(request.phase === "review" ? review : sequence),
 				costMicroUsd: 3000,
 				finishReason: "stop",
 			};
@@ -288,7 +279,7 @@ for (const drift of [
 test("independent grounding rejection holds all stages without template fallback", async () => {
 	generate.mockImplementation(async (request) => ({
 		text: JSON.stringify(
-			request.maxOutputTokens === DRAFTING.reviewOutputTokens
+			request.phase === "review"
 				? {
 						...review,
 						stages: [
@@ -314,7 +305,7 @@ test("independent grounding rejection holds all stages without template fallback
 test("grounding diagnostics name every rejected fixed flag and preserve the paid-call ledger", async () => {
 	generate.mockImplementation(async (request) => ({
 		text: JSON.stringify(
-			request.maxOutputTokens === DRAFTING.reviewOutputTokens
+			request.phase === "review"
 				? {
 						grounded: false,
 						intentPreserved: false,
@@ -347,7 +338,7 @@ test("grounding diagnostics name every rejected fixed flag and preserve the paid
 test("unrecognized review prose stays hidden instead of entering safe flag diagnostics", async () => {
 	generate.mockImplementation(async (request) => ({
 		text: JSON.stringify(
-			request.maxOutputTokens === DRAFTING.reviewOutputTokens
+			request.phase === "review"
 				? { ...review, reason: "private provider prose with Bearer secret" }
 				: sequence,
 		),
@@ -382,13 +373,9 @@ test("unsupported claim fails before the second paid review", async () => {
 test("unknown cost remains reserved, shared reply drafting uses the same monthly ledger", async () => {
 	generate.mockImplementation(async (request) => ({
 		text:
-			request.maxOutputTokens === DRAFTING.replyOutputTokens
+			request.phase === "reply"
 				? "Thank you. Which reporting needs would you like to discuss?"
-				: JSON.stringify(
-						request.maxOutputTokens === DRAFTING.reviewOutputTokens
-							? review
-							: sequence,
-					),
+				: JSON.stringify(request.phase === "review" ? review : sequence),
 		costMicroUsd: null,
 		finishReason: "stop",
 	}));
@@ -512,19 +499,67 @@ test("failed calls keep reservations and stop after two bounded attempts without
 	);
 });
 
-test("truncated output settles cost and reports a fixed output-limit hold", async () => {
-	generate.mockResolvedValue({
-		text: "{partial",
-		costMicroUsd: 3000,
-		finishReason: "length",
+for (const phase of ["generation", "review"] as const)
+	test(`truncated ${phase} settles cost and holds all drafts without a resend`, async () => {
+		generate.mockImplementation(async (request) => ({
+			text:
+				request.phase === phase
+					? "{partial private provider copy"
+					: JSON.stringify(sequence),
+			costMicroUsd: 3000,
+			finishReason: request.phase === phase ? "length" : "stop",
+		}));
+		await draftOutreachSequence();
+		const calls = phase === "generation" ? 1 : 2;
+		expect(await record()).toMatchObject({
+			emailDraftError: `AI ${phase} output did not finish normally (length). Drafts stay held.`,
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			initialSentAt: null,
+			emailDraftLease: null,
+		});
+		expect(await budget()).toMatchObject({
+			calls,
+			actualMicroUsd: calls * 3000,
+			reservedMicroUsd: calls * 3000,
+		});
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(calls);
 	});
+
+test("other finish reasons expose only the allowed reason and phase, never provider copy", async () => {
+	generate.mockImplementation(async (request) => ({
+		text:
+			request.phase === "review"
+				? "Private provider prose with Bearer secret"
+				: JSON.stringify(sequence),
+		costMicroUsd: 3000,
+		finishReason: request.phase === "review" ? "other" : "stop",
+	}));
 	await draftOutreachSequence();
-	expect((await record()).emailDraftError).toContain("output limit");
-	expect((await budget()).actualMicroUsd).toBe(3000);
+	expect(await record()).toMatchObject({
+		emailDraftError:
+			"AI review output did not finish normally (other). Drafts stay held.",
+		emailDraftStatus: "HELD",
+		emailDrafts: null,
+		initialSentAt: null,
+	});
+	expect(await budget()).toMatchObject({
+		calls: 2,
+		actualMicroUsd: 6000,
+		reservedMicroUsd: 6000,
+	});
+	expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+		0,
+	);
 });
 
 test("input and price bounds reject requests before any reservation", async () => {
 	const result = await outreachAiText({
+		phase: "generation",
 		instructions: "x".repeat(DRAFTING.maxInputBytes + 1),
 		prompt: "",
 		maxOutputTokens: 100,
