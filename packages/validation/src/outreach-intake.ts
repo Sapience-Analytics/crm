@@ -18,6 +18,10 @@ export const OUTREACH_INTAKE = {
 		"Source verification stopped after three attempts. The prospect stays on hold.",
 	bindingReason:
 		"Verified contact binding needs review. An existing or suppressed record conflicts with this prospect.",
+	revisionReason:
+		"Revised source quote is queued for verification. Draft previews need a new review.",
+	revisionVerifiedReason:
+		"Revised source verification passed. New AI drafts and preview review are required.",
 } as const;
 
 export const intakeCandidateSchema = evidenceSchema
@@ -58,3 +62,12 @@ export const importCandidatesOutput = z.object({
 		}),
 	),
 });
+
+export const reviseSourceQuoteInput = z
+	.object({
+		id: z.string().min(1).max(100),
+		sourceQuote: z.string().trim().pipe(evidenceSchema.shape.sourceQuote),
+	})
+	.strict();
+
+export const reviseSourceQuoteOutput = z.object({ ok: z.literal(true) });
