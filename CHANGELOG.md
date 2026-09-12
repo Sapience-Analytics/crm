@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.4](https://github.com/Sapience-Analytics/crm/compare/v1.19.3...v1.19.4) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** verify fast routing for independent draft review ([13a3d12](https://github.com/Sapience-Analytics/crm/commit/13a3d12c6e79b63478725d3de7543507ea22203d))
+
 ## [1.19.3](https://github.com/Sapience-Analytics/crm/compare/v1.19.2...v1.19.3) (2026-09-12)
 
 
