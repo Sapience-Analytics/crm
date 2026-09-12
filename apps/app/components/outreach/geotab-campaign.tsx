@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
 import { CandidateIntake } from "./candidate-intake";
+import { ContactResearch } from "./contact-research";
 import { ControlledTests } from "./controlled-tests";
 import { SourceQuoteRevision } from "./source-quote-revision";
 
@@ -272,6 +273,13 @@ export function GeotabCampaign() {
 							Review company source
 						</a>
 						<p>{prospect.stopReason}</p>
+						{["HELD", "READY", "MANUAL"].includes(prospect.status) && (
+							<ContactResearch
+								id={prospect.id}
+								company={prospect.company}
+								email={prospect.email}
+							/>
+						)}
 						{["READY", "MANUAL"].includes(prospect.status) && (
 							<SourceQuoteRevision
 								key={`${prospect.id}:${prospect.sourceQuote}`}
@@ -437,11 +445,12 @@ function TemplateEditor({ initial }: { initial: Templates }) {
 			<CardHeader>
 				<CardTitle>Email templates</CardTitle>
 				<CardDescription>
-					AI writes natural openings and fleet-needs questions using verified
-					source facts. All three approved stage templates guide its intent. The
-					initial Geotab offer and every signature remain fixed. A separate AI
-					grounding review checks each opening and question. Your pilot preview
-					review is also required. Changes pause sending and clear approval.
+					Messages greet verified named contacts by name. Department inboxes
+					receive “Hi team” and a question about the right contact. AI uses
+					verified company facts and brief approved Geotab capabilities. The
+					approved templates guide all three stages. The initial offer and
+					signatures stay fixed. AI grounding checks and your pilot preview
+					review remain required. Changes pause sending and clear approval.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>

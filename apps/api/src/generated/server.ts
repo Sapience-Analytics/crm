@@ -26,6 +26,7 @@ import { enrichmentQueueInput } from "@crm/validation/enrichment-queue";
 import { fieldListInput, fieldListOutput, fieldByKeyInput, serializedFieldOutput, fieldEntityInput, fieldFiltersOutput, fieldIdInput, fieldCoverageOutput, fieldCreateInput, fieldUpdateArgs, fieldReorderInput, fieldReorderOutput, fieldDeleteOutput, fieldBackfillOutput } from "../fields/fields.contracts";
 import { googleConnectionStatusOutput, gmailImportOutput, setAutoCreateInput, suppressDomainInput, suppressDomainOutput, threadInput, emailThreadOutput, calendarEventInput, calendarEventOutput } from "../google/google.contracts";
 import { purgeSyncedDataOutput, revokeAccessOutput, microsoftConnectionStatusOutput, setOutlookAutoCreateInput } from "../microsoft/microsoft.contracts";
+import { contactResearchInput, contactResearchOutput, queueContactResearchInput, contactResearchActionOutput, selectContactInput } from "@crm/validation/outreach-contacts";
 import { importCandidatesInput, importCandidatesOutput, reviseSourceQuoteInput, reviseSourceQuoteOutput } from "@crm/validation/outreach-intake";
 import { outreachStatusOutput, outreachPageInput, outreachProspectsOutput, outreachResult, campaignUpdateInput, campaignActionInput, campaignReadinessInput, prospectApproveInput, prospectStopInput, reviewDraftsInput } from "../outreach/outreach.contracts";
 import { launchTestsOutput, startLaunchTestsInput, launchTestIdInput, launchTestHeadersInput } from "@crm/validation/outreach-tests";
@@ -589,6 +590,20 @@ const appRouter = t.router({
     setAutoCreate: publicProcedure
       .input(setOutlookAutoCreateInput)
       .output(microsoftConnectionStatusOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
+    }),
+  outreachContacts: t.router({
+    status: publicProcedure
+      .input(contactResearchInput)
+      .output(contactResearchOutput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    research: publicProcedure
+      .input(queueContactResearchInput)
+      .output(contactResearchActionOutput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    select: publicProcedure
+      .input(selectContactInput)
+      .output(contactResearchActionOutput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
     }),
   outreachIntake: t.router({

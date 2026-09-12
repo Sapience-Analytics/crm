@@ -1,9 +1,11 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as sourceFetch from "@crm/db/safe-fetch";
 import { evidenceSchema, OUTREACH } from "@crm/validation/outreach";
+import { contactResearchCandidateSchema } from "@crm/validation/outreach-contact-target";
+import { verifyContactCandidate } from "../agent/lib/outreach-contact-source";
+import { decodeCloudflareEmail } from "../agent/lib/outreach-email-source";
 import {
 	checkProspectSources,
-	decodeCloudflareEmail,
 	readSource,
 	verifyProspectSource,
 } from "../agent/lib/outreach-research";
@@ -43,6 +45,62 @@ test("verifies fleet facts and WA on the primary page with separate contact evid
 	expect(
 		verifyProspectSource(evidence, primary, new URL(evidence.sourceUrl)),
 	).toBe(false);
+});
+
+test("selected named targets require their complete current association during full source revalidation", () => {
+	const candidate = contactResearchCandidateSchema.parse({
+		kind: "named",
+		name: "Alex Smith",
+		role: "fleet",
+		roleTitle: "Fleet Manager",
+		email: evidence.email,
+		sourceUrl: evidence.contactSourceUrl,
+		associationQuote: "Alex Smith Fleet Manager fleet@example.test",
+		employmentQuote: "Alex Smith Fleet Manager",
+	});
+	const page =
+		"<section><h2>Alex Smith</h2><p>Fleet Manager</p><p>fleet@example.test</p></section>";
+	const target = verifyContactCandidate(
+		candidate,
+		evidence.domain,
+		evidence.email,
+		page,
+		new URL(candidate.sourceUrl),
+	);
+	expect(target).not.toBeNull();
+	const selected = evidenceSchema.parse({
+		...evidence,
+		contactTarget: target,
+		contactRoleQuote: candidate.associationQuote,
+	});
+	expect(
+		verifyProspectSource(selected, primary, new URL(evidence.sourceUrl), {
+			text: page,
+			url: new URL(candidate.sourceUrl),
+		}),
+	).toBe(true);
+	expect(
+		verifyProspectSource(selected, primary, new URL(evidence.sourceUrl), {
+			text: "<main><section>Alex Smith Fleet Manager</section></main><footer>fleet@example.test</footer>",
+			url: new URL(candidate.sourceUrl),
+		}),
+	).toBe(false);
+});
+
+test("complete contact quotes containing Cloudflare email revalidate after selection", () => {
+	const encoded = Buffer.from([
+		42,
+		...Buffer.from(evidence.email ?? "").map((byte) => byte ^ 42),
+	]).toString("hex");
+	const page = `<div>Fleet Manager <span data-cfemail="${encoded}">[email protected]</span></div>`;
+	expect(
+		verifyProspectSource(
+			{ ...evidence, contactRoleQuote: "Fleet Manager fleet@example.test" },
+			primary,
+			new URL(evidence.sourceUrl),
+			{ text: page, url: new URL(evidence.contactSourceUrl ?? "") },
+		),
+	).toBe(true);
 });
 
 test("requires the exact role and exact email on the separate official contact page", () => {

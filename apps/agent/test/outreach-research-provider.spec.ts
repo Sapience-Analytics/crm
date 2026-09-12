@@ -3,6 +3,7 @@ import { OUTREACH, researchResultSchema } from "@crm/validation/outreach";
 import { RESEARCH_PROVIDER } from "../agent/lib/outreach-research-config";
 import {
 	estimatedResearchMicroUsd,
+	fetchContactResearch,
 	fetchResearch,
 	ResearchProviderError,
 	researchRequest,
@@ -23,6 +24,71 @@ const prospect = {
 	sourceQuote: "We operate delivery vehicles across Perth.",
 	waQuote: "Perth, Western Australia",
 };
+
+test("contact search uses the same bounded provider and local strict candidate validation", async () => {
+	const body = researchRequest("Find a current fleet manager", "contacts");
+	const request = JSON.parse(body);
+	expect(request.model).toBe(RESEARCH_PROVIDER.model);
+	expect(request.max_steps).toBe(1);
+	expect(request.response_format.json_schema.name).toBe("geotab_contacts");
+	expect(
+		request.response_format.json_schema.schema.properties.candidates,
+	).toBeDefined();
+	const payload = answer();
+	const candidate = {
+		kind: "named",
+		name: "Alex Smith",
+		role: "operations",
+		roleTitle: "Operations Manager",
+		email: "alex@example.test",
+		sourceUrl: "https://example.test/contact",
+		associationQuote: "Alex Smith Operations Manager alex@example.test",
+		employmentQuote: "Alex Smith Operations Manager",
+	};
+	payload.output = [
+		{
+			type: "message",
+			role: "assistant",
+			status: "completed",
+			content: [
+				{
+					type: "output_text",
+					text: JSON.stringify({ candidates: [candidate] }),
+				},
+			],
+		},
+	];
+	fetchSpy.mockResolvedValue(new Response(JSON.stringify(payload)));
+	const result = await fetchContactResearch(body, key, async (cost) => {
+		charges.push(cost);
+	});
+	expect(result.candidates[0]?.name).toBe("Alex Smith");
+	expect(charges).toEqual([3470]);
+	payload.output = [
+		{
+			type: "message",
+			role: "assistant",
+			status: "completed",
+			content: [
+				{
+					type: "output_text",
+					text: JSON.stringify({
+						candidates: [{ ...candidate, email: "guessed invalid" }],
+					}),
+				},
+			],
+		},
+	];
+	fetchSpy.mockResolvedValue(new Response(JSON.stringify(payload)));
+	const error = await fetchContactResearch(body, key, async (cost) => {
+		charges.push(cost);
+	}).then(
+		() => null,
+		(failure: Error) => failure,
+	);
+	expect(error?.message).toContain("invalid contact JSON");
+	expect(charges).toEqual([3470, 3470]);
+});
 
 function answer(status = "completed", cost: number | null = 0.00347) {
 	return {

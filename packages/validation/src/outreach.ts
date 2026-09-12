@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { contactTargetSchema } from "./outreach-contact-target";
 
 export const OUTREACH = {
 	id: "geotab-wa",
@@ -104,11 +105,18 @@ export const evidenceSchema = z.object({
 	waQuote: z.string().min(5).max(300),
 	checkedAt: z.iso.datetime(),
 	verified: z.boolean(),
+	contactTarget: contactTargetSchema.optional(),
 });
 export type ProspectEvidence = z.infer<typeof evidenceSchema>;
 export const researchResultSchema = z.object({
 	prospects: z
-		.array(evidenceSchema.omit({ checkedAt: true, verified: true }))
+		.array(
+			evidenceSchema.omit({
+				checkedAt: true,
+				verified: true,
+				contactTarget: true,
+			}),
+		)
 		.max(5),
 });
 export const consentSchema = z.object({
