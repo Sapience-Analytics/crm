@@ -359,6 +359,59 @@ test("exhausted budget holds generation without a paid call", async () => {
 	expect((await record()).emailDraftError).toContain("allowance is exhausted");
 });
 
+test("non-text catalog entries do not block selected-model drafting or reservation accounting", async () => {
+	fetchSpy.mockImplementation(async () =>
+		Response.json({
+			data: [
+				{ id: "image-model", pricing: {} },
+				{
+					id: "video-model",
+					pricing: { video_duration_pricing: [{ duration: 5, price: "0.25" }] },
+				},
+				{
+					id: DRAFTING.model,
+					pricing: { input: "0.00000075", output: "0.0000045" },
+				},
+			],
+		}),
+	);
+	await draftOutreachSequence();
+	expect((await record()).emailDraftStatus).toBe("READY");
+	expect(await budget()).toMatchObject({
+		calls: 2,
+		reservedMicroUsd: 6000,
+		actualMicroUsd: 6000,
+	});
+});
+
+test("invalid selected-model pricing blocks calls and cannot create a zero-priced reservation", async () => {
+	fetchSpy.mockResolvedValue(
+		Response.json({
+			data: [
+				{ id: DRAFTING.model, pricing: { input: null, output: "0.0000045" } },
+			],
+		}),
+	);
+	await draftOutreachSequence();
+	expect(generate).not.toHaveBeenCalled();
+	expect(await db.outreachBudget.count({ where: { id: budgetId } })).toBe(0);
+	expect((await record()).emailDraftError).toContain(
+		"token pricing is unavailable",
+	);
+});
+
+test("catalog HTTP errors expose status only and keep drafting unpaid", async () => {
+	fetchSpy.mockResolvedValue(
+		new Response("private-body bearer test-secret", { status: 503 }),
+	);
+	await draftOutreachSequence();
+	expect((await record()).emailDraftError).toBe(
+		"AI model catalog returned HTTP 503. Drafts stay on hold.",
+	);
+	expect(generate).not.toHaveBeenCalled();
+	expect(await db.outreachBudget.count({ where: { id: budgetId } })).toBe(0);
+});
+
 test("actual overrun is reconciled and pauses both sequence and reply AI", async () => {
 	generate.mockResolvedValue({
 		text: JSON.stringify(sequence),

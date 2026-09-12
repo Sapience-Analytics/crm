@@ -4,6 +4,18 @@ Open **Agents → Geotab prospecting**. The route is `/sapience-analytics/agents
 
 The campaign starts paused. Creating the campaign does not send email or call research providers.
 
+## Quick use
+
+1. Import sourced candidates or use **Start cloud research**. Wait for official source and contact verification.
+2. Qualify the two prospects you want to email manually first, then the other ten. Qualification records contact eligibility; a public email alone is insufficient.
+3. Leave sending paused while AI prepares the initial email and both follow-ups. Drafts can generate before campaign approval.
+4. Read all three exact previews for each of the twelve prospects, then choose **Record review of all three previews** on each record.
+5. Review and approve the current templates and [AI personalisation policy](geotab-campaign-approval.md). Complete Gmail permissions and launch checks, then use **Start approved pilot**.
+6. Copy the two manual prospects' drafts into Gmail and handle their follow-ups yourself. The other ten use automation. You handle all replies, meetings and sales conversations.
+7. After the pilot checks pass, use **Accept pilot and start weekly campaign**. Review the weekly report and held records on this page.
+
+Approval alone does not start sending. Held or missing drafts never fall back to template emails. The campaign page shows the current live state.
+
 ## Workflow
 
 The agent's minute schedule checks research, source verification, personalised email drafts and reply drafts. Research runs at most hourly.
@@ -11,7 +23,7 @@ The Perplexity Agent API finds up to five prospects per request. The weekly targ
 The worker verifies source quotations, WA location text and published email addresses against the company's website.
 Unverified records stay on hold. Vehicle counts stay unknown during discovery. Plant and employee counts never become vehicle counts.
 
-Verified companies enter CompAI without overwriting existing fields. Existing Context enrichment fills company details.
+Verified companies and exact published contacts enter CompAI without overwriting existing fields or reassigning existing contacts. Company enrichment is separate from source verification; imported contacts do not trigger paid enrichment.
 Recent unanswered CRM emails explicitly requesting Geotab or fleet-tracking contact establish automatic eligibility.
 Other prospects require documented consent or an assessed inferred-consent basis. Publication alone never enables sending.
 The first two eligible prospects remain manual permanently. The next ten form the automated pilot.
@@ -22,7 +34,7 @@ Follow-ups fall 4 and 10 weekdays after the initial send. Public holidays are no
 No third follow-up exists. An overdue message waits for the next sending window and available daily capacity.
 
 AI writes natural openings and fleet-needs questions for all three stages using verified source facts.
-Every opening and question includes its own exact supporting source reference. A separate AI review audits grounding and stage intent.
+The preview shows an exact supporting source reference for each opening and question; those references are review evidence, not extra text appended to the email. A separate AI review audits grounding and stage intent.
 Deterministic checks reject unsupported numbers, commercial claims, added links, placeholders and missing sender identification or unsubscribe instructions.
 The approved initial Geotab offer and every signature remain fixed. All approved stage templates guide generation and grounding review.
 Three complete messages persist together before any send. The preview and delivery use those exact stored strings.
@@ -38,9 +50,9 @@ Weekly reports appear on the campaign page. They do not send a separate report e
 3. Configure the existing `PERPLEXITY_API_KEY` on the agent's Production environment. Never paste the key into chat.
 4. Enable cloud research. Review source and eligibility holds in the campaign page.
 5. Connect Gmail sending from the campaign page. Existing read permissions remain required; sending is an additional grant.
-6. Review templates and AI personalisation rules. This policy requires renewed approval; migration pauses sending and clears previous approval.
+6. Read the templates and AI personalisation rules. v1.18.0 pauses sending and clears approval of the previous quotation-substitution policy. Qualification and draft generation do not require campaign approval.
 7. Record SPF, DKIM, DMARC and controlled delivery, reply-stop, opt-out-stop and CRM logging checks.
-8. Qualify twelve prospects, wait for all three drafts each, and record review of their exact previews before starting the pilot.
+8. Qualify the two manual prospects first, then the ten automated prospects. Wait for all three drafts each and record review of their exact previews. Approve the current templates and policy, then start the pilot.
 9. Accept the pilot and activate weekly sending after all ten initial deliveries are confirmed and logged.
 
 Research and sending have separate pause controls. Template edits pause sending and revoke approval and launch checks.
@@ -52,7 +64,8 @@ Missing research credentials appear as a held research status. They never enable
 Use **Import researched candidates** for an owner-reviewed JSON batch containing at most twelve records.
 Provide exact fleet/operation and WA quotations. A separate contact page may supply a published email and role quotation.
 Intake creates held, unverified records. It does not grant consent, allocate pilot slots, overwrite company fields or send email.
-The agent independently verifies the official website and contact evidence. Failed or conflicting sources remain held.
+The agent independently verifies the official website and contact evidence, including published contact addresses on a different mailbox domain. It creates or reuses the exact contact under the verified company. Archived, conflicting or suppressed records remain held without reassignment.
+Transient source failures retry after fifteen minutes, with at most three attempts. Importing the same manifest again does not reset a held record or its verification attempts.
 Qualification remains a separate owner action recording the relevant role, contact basis and absence of restrictions.
 
 ## Safety and recovery
