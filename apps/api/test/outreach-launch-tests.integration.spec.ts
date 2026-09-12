@@ -79,7 +79,10 @@ async function failureOf(promise: Promise<unknown>) {
 		(error: Error) => error.message,
 	);
 }
-function accept(message: Parameters<OutreachGmail["send"]>[1]) {
+function accept(
+	message: Parameters<OutreachGmail["send"]>[1],
+	observedId?: string,
+) {
 	const id = `sent-${crypto.randomUUID()}`;
 	const threadId = `thread-${crypto.randomUUID()}`;
 	messages.set(id, {
@@ -90,7 +93,7 @@ function accept(message: Parameters<OutreachGmail["send"]>[1]) {
 		payload: {
 			mimeType: "text/plain",
 			headers: [
-				{ name: "Message-ID", value: `<${message.rfcId}>` },
+				{ name: "Message-ID", value: `<${observedId ?? message.rfcId}>` },
 				{ name: "From", value: message.from },
 				{ name: "To", value: message.to },
 				{ name: "Subject", value: message.subject },
@@ -101,7 +104,11 @@ function accept(message: Parameters<OutreachGmail["send"]>[1]) {
 	return { id, threadId };
 }
 function addReply(
-	row: { rfcMessageId: string; gmailThreadId: string | null },
+	row: {
+		rfcMessageId: string;
+		observedRfcMessageId: string | null;
+		gmailThreadId: string | null;
+	},
 	body: string,
 ) {
 	const id = `reply-${crypto.randomUUID()}`;
@@ -114,13 +121,25 @@ function addReply(
 			mimeType: "text/plain",
 			headers: [
 				{ name: "Message-ID", value: `<${id}@gmail.com>` },
-				{ name: "References", value: `<${row.rfcMessageId}>` },
+				{
+					name: "References",
+					value: `<${row.observedRfcMessageId ?? row.rfcMessageId}>`,
+				},
 				{ name: "From", value: recipient },
 				{ name: "To", value: OUTREACH.sender },
 			],
 			body: { data: Buffer.from(body).toString("base64url") },
 		},
 	});
+}
+
+function receiverHeaders(id: string) {
+	return [
+		`Message-ID: <${id}>`,
+		`From: ${OUTREACH.sender}`,
+		`To: ${recipient}`,
+		"Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=danny@sapienceanalytics.com.au; dkim=pass header.d=sapienceanalytics.com.au; dmarc=pass header.from=sapienceanalytics.com.au",
+	].join("\r\n");
 }
 
 beforeAll(async () => {
@@ -230,6 +249,145 @@ afterAll(async () => {
 });
 
 describe("isolated controlled Gmail tests", () => {
+	test("existing sends bind rewritten identities, reconcile concurrently, and thread replies without resending", async () => {
+		sender.mockImplementation(async (_token, message) =>
+			accept(message, `CAPx-${crypto.randomUUID()}@mail.gmail.com`),
+		);
+		spyOn(gmail, "message").mockRejectedValueOnce(
+			new Error("Readback failed after confirmed send"),
+		);
+		await service.start(userId, input());
+		const pending = await db.outreachLaunchTest.findFirstOrThrow({
+			where: { ownerId: userId, observedRfcMessageId: null },
+		});
+		expect(pending.status).toBe("SENT");
+		expect(
+			await failureOf(
+				service.recordHeaders(
+					userId,
+					pending.id,
+					receiverHeaders(pending.rfcMessageId),
+				),
+			),
+		).toContain("Reconcile");
+		await Promise.all([
+			service.check(userId, pending.id),
+			service.check(userId, pending.id),
+		]);
+		const bound = await db.outreachLaunchTest.findUniqueOrThrow({
+			where: { id: pending.id },
+		});
+		expect(bound.rfcMessageId).toBe(pending.rfcMessageId);
+		expect(bound.observedRfcMessageId).toStartWith("CAPx-");
+		expect(bound.loggedAt).not.toBeNull();
+		expect(bound.lastError).toBeNull();
+		addReply(bound, "Test reply received.");
+		await Promise.all([
+			service.check(userId, bound.id),
+			service.check(userId, bound.id),
+		]);
+		await service.check(userId, bound.id);
+		const logged = await db.emailMessage.findMany({
+			where: {
+				syncedByUserId: userId,
+				thread: {
+					rootMessageId: bound.observedRfcMessageId?.toLowerCase() ?? "",
+				},
+			},
+		});
+		expect(logged).toHaveLength(2);
+		expect(new Set(logged.map((message) => message.threadId)).size).toBe(1);
+		expect(
+			await failureOf(
+				service.recordHeaders(
+					userId,
+					bound.id,
+					receiverHeaders(bound.rfcMessageId),
+				),
+			),
+		).toContain("must match");
+		await service.recordHeaders(
+			userId,
+			bound.id,
+			receiverHeaders((bound.observedRfcMessageId ?? "").toUpperCase()),
+		);
+		const evidence = (await service.list(userId)).rows.find(
+			(row) => row.id === bound.id,
+		)?.recipientAuth;
+		expect(evidence).toMatchObject({
+			spf: true,
+			dkim: true,
+			dmarc: true,
+			messageId: bound.observedRfcMessageId?.toLowerCase(),
+		});
+		expect(sender).toHaveBeenCalledTimes(2);
+		expect(await db.outreachProspect.count()).toBe(0);
+		expect(await db.outreachSuppression.count()).toBe(0);
+		expect((await outreach.status(userId)).ready).toBe(false);
+	});
+	test("observed identity cannot change or bind to two durable tests", async () => {
+		const observed = `shared-${crypto.randomUUID()}@mail.gmail.com`;
+		sender.mockImplementation(async (_token, message) =>
+			accept(message, observed),
+		);
+		await service.start(userId, input());
+		const bound = await db.outreachLaunchTest.findFirstOrThrow({
+			where: { ownerId: userId, observedRfcMessageId: observed },
+		});
+		const held = await db.outreachLaunchTest.findFirstOrThrow({
+			where: { ownerId: userId, observedRfcMessageId: null },
+		});
+		expect(held.status).toBe("SENT");
+		expect(held.loggedAt).toBeNull();
+		await service.check(userId, held.id);
+		const message = messages.get(bound.gmailMessageId ?? "");
+		if (!message?.payload?.headers)
+			throw new Error("Missing mocked sent message");
+		message.payload.headers = message.payload.headers.map((entry) =>
+			entry.name === "Message-ID"
+				? { ...entry, value: "<changed@mail.gmail.com>" }
+				: entry,
+		);
+		await service.check(userId, bound.id);
+		expect(
+			(
+				await db.outreachLaunchTest.findUniqueOrThrow({
+					where: { id: bound.id },
+				})
+			).lastError,
+		).toContain("identity changed");
+		expect(
+			(
+				await db.outreachLaunchTest.findUniqueOrThrow({
+					where: { id: held.id },
+				})
+			).observedRfcMessageId,
+		).toBeNull();
+		expect(
+			await db.emailMessage.count({ where: { syncedByUserId: userId } }),
+		).toBe(1);
+		expect(sender).toHaveBeenCalledTimes(2);
+	});
+	test("unknown rewritten sends cannot recover through the planned ID or retry", async () => {
+		sender.mockImplementationOnce(async (_token, message) => {
+			accept(message, `rewritten-${crypto.randomUUID()}@mail.gmail.com`);
+			throw new Error("Connection closed after provider acceptance");
+		});
+		await service.start(userId, input());
+		const row = await db.outreachLaunchTest.findFirstOrThrow({
+			where: { ownerId: userId, status: "UNKNOWN" },
+		});
+		await service.check(userId, row.id);
+		await service.check(userId, row.id);
+		const held = await db.outreachLaunchTest.findUniqueOrThrow({
+			where: { id: row.id },
+		});
+		expect(held.gmailMessageId).toBeNull();
+		expect(held.observedRfcMessageId).toBeNull();
+		expect(held.loggedAt).toBeNull();
+		expect(held.status).toBe("UNKNOWN");
+		expect(sender).toHaveBeenCalledTimes(2);
+	});
 	test("only the sender can manage tests; preview and self-send are refused", async () => {
 		expect(await failureOf(service.list(outsiderId))).toContain(
 			"Only the campaign sender",
