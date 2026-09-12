@@ -5,7 +5,11 @@ import {
 	evidenceSchema,
 	OUTREACH,
 } from "@crm/validation/outreach";
-import { contactResearchCandidateSchema } from "@crm/validation/outreach-contact-target";
+import {
+	type ContactResearchCandidate,
+	contactResearchCandidateSchema,
+} from "@crm/validation/outreach-contact-target";
+import { CONTACT_RESEARCH } from "@crm/validation/outreach-contacts";
 import { runOutreachContactResearch } from "../agent/lib/outreach-contact-research";
 import * as sources from "../agent/lib/outreach-research";
 import { RESEARCH_PROVIDER } from "../agent/lib/outreach-research-config";
@@ -123,6 +127,7 @@ afterAll(() => {
 function response(
 	cost: number | null = 0.004,
 	model = RESEARCH_PROVIDER.model,
+	candidates: ContactResearchCandidate[] = [candidate],
 ) {
 	return Response.json({
 		model,
@@ -140,7 +145,7 @@ function response(
 				content: [
 					{
 						type: "output_text",
-						text: JSON.stringify({ candidates: [candidate] }),
+						text: JSON.stringify({ candidates }),
 					},
 				],
 			},
@@ -294,13 +299,147 @@ test("failed association saves no candidates", async () => {
 		url: new URL(candidate.sourceUrl),
 	});
 	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.status).toBe("HELD");
+	expect(job.error).toBe(
+		"Candidates from owner input: 1. Sources unavailable: 0. Associations rejected: 1. No current official contact association passed verification. Existing contact remains unchanged.",
+	);
+	expect(job.candidates).toEqual([]);
+	expect(fetchSpy).not.toHaveBeenCalled();
+	expect(await db.outreachBudget.count({ where: { id: budgetId } })).toBe(0);
+});
+
+test("empty provider results report zero candidates without source calls or automatic retries", async () => {
+	await hosted();
+	const before = await db.outreachProspect.findUniqueOrThrow({ where: { id } });
+	fetchSpy.mockResolvedValue(response(0.004, RESEARCH_PROVIDER.model, []));
+	await runOutreachContactResearch();
+	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.status).toBe("HELD");
+	expect(job.error).toBe(
+		"Candidates from research provider: 0. Sources unavailable: 0. Associations rejected: 0. No current official contact association passed verification. Existing contact remains unchanged.",
+	);
+	expect(job.candidates).toEqual([]);
+	expect(job.attempts).toBe(1);
+	expect(job.lease).toBeNull();
+	expect(job.leaseUntil).toBeNull();
+	expect(job.dueAt).toBeNull();
+	expect(sourceSpy).not.toHaveBeenCalled();
+	expect(fetchSpy).toHaveBeenCalledTimes(1);
 	expect(
-		(
-			await db.outreachContactResearch.findUniqueOrThrow({
-				where: { prospectId: id },
-			})
-		).status,
-	).toBe("HELD");
+		await db.outreachProspect.findUniqueOrThrow({ where: { id } }),
+	).toEqual(before);
+	const budget = await db.outreachBudget.findUniqueOrThrow({
+		where: { id: budgetId },
+	});
+	expect(budget.actualMicroUsd).toBe(4000);
+	expect(budget.reservedMicroUsd).toBe(4000);
+});
+
+test("zero verified provider candidates report bounded unavailable and rejection counts without raw content", async () => {
+	await hosted();
+	const candidates = Array.from(
+		{ length: CONTACT_RESEARCH.maxCandidates },
+		(_, index) => ({
+			...candidate,
+			sourceUrl: `https://${domain}/private-contact-${index}`,
+		}),
+	);
+	fetchSpy.mockResolvedValue(
+		response(0.004, RESEARCH_PROVIDER.model, candidates),
+	);
+	sourceSpy.mockImplementation(async (url) =>
+		url.endsWith("-0")
+			? null
+			: {
+					text: "<section>private-source-body-do-not-log</section>",
+					url: new URL(url),
+				},
+	);
+	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.status).toBe("HELD");
+	expect(job.error).toBe(
+		"Candidates from research provider: 3. Sources unavailable: 1. Associations rejected: 2. No current official contact association passed verification. Existing contact remains unchanged.",
+	);
+	expect(job.error).not.toContain(domain);
+	expect(job.error).not.toContain("Alex Smith");
+	expect(job.error).not.toContain("private-source-body");
+	expect(job.error).not.toContain("private-contact");
+	expect(job.candidates).toEqual([]);
+	expect(sourceSpy).toHaveBeenCalledTimes(CONTACT_RESEARCH.maxCandidates);
+	expect(fetchSpy).toHaveBeenCalledTimes(1);
+});
+
+test("unavailable owner sources report counts without charging a provider", async () => {
+	sourceSpy.mockResolvedValue(null);
+	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.error).toBe(
+		"Candidates from owner input: 1. Sources unavailable: 1. Associations rejected: 0. No current official contact association passed verification. Existing contact remains unchanged.",
+	);
+	expect(job.status).toBe("HELD");
+	expect(fetchSpy).not.toHaveBeenCalled();
+	expect(await db.outreachBudget.count({ where: { id: budgetId } })).toBe(0);
+});
+
+test("partial verification keeps READY without a zero-result diagnostic", async () => {
+	await db.outreachContactResearch.update({
+		where: { prospectId: id },
+		data: {
+			submittedCandidates: [
+				candidate,
+				{ ...candidate, sourceUrl: `https://${domain}/missing` },
+			],
+		},
+	});
+	sourceSpy
+		.mockResolvedValueOnce({
+			text: `<section>${candidate.associationQuote}</section>`,
+			url: new URL(candidate.sourceUrl),
+		})
+		.mockResolvedValueOnce(null);
+	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.status).toBe("READY");
+	expect(job.error).toBeNull();
+	expect(job.candidates).toHaveLength(1);
+	expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test("provider candidate overflow retains the fixed schema error without unbounded diagnostics", async () => {
+	await hosted();
+	fetchSpy.mockResolvedValue(
+		response(
+			0.004,
+			RESEARCH_PROVIDER.model,
+			Array.from(
+				{ length: CONTACT_RESEARCH.maxCandidates + 1 },
+				() => candidate,
+			),
+		),
+	);
+	await runOutreachContactResearch();
+	const job = await db.outreachContactResearch.findUniqueOrThrow({
+		where: { prospectId: id },
+	});
+	expect(job.error).toBe(
+		"Research provider returned invalid contact JSON. No candidates saved.",
+	);
+	expect(job.status).toBe("HELD");
+	expect(sourceSpy).not.toHaveBeenCalled();
+	expect(job.candidates).toBeNull();
 });
 
 test("suppression blocks work before source or provider calls", async () => {
