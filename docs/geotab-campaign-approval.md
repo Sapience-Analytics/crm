@@ -1,44 +1,37 @@
-# Geotab email campaign — approval copy
+# Geotab campaign — copy and approval
 
-Templates approved in the production CRM on 12 September 2026. Sending remains paused pending launch checks and eligible prospects.
-The campaign's stored approval controls sending. Editing templates revokes that approval.
+This describes the v1.18.0 AI personalisation policy. The production CRM shows the current templates, previews, approval and sending status; this document does not grant approval.
 
-Sender: Danny, Sapience Analytics, danny@sapienceanalytics.com.au.
+## Review before launch
 
-Audience: eligible WA fleet operators across transport, trades, civil and industrial services. All fleet sizes.
-Pilot: 10 automated prospects and two permanent manual prospects.
-Ongoing: 50 researched prospects weekly. Only eligible prospects enter sending.
-Replies, opt-outs, bounces and bookings stop the sequence. AI drafts replies for Danny to send.
+1. Keep sending paused. Qualify the two manual prospects first, then the ten automated prospects.
+2. Wait for AI to prepare all three messages per prospect. Campaign approval is not required to generate previews.
+3. Read each complete preview and its supporting source references. Choose **Record review of all three previews** for every pilot prospect.
+4. Approve the current templates and personalisation policy in **Agents → Geotab prospecting**. Once Gmail permissions and launch checks also pass, choose **Start approved pilot**.
 
-## Initial email
+The initial message and both follow-ups are stored together. Sending uses those exact stored previews. The two manual prospects stay permanently excluded from automation, including follow-ups.
 
-Subject: Fleet needs at {{company}}
+## What AI writes
 
-Hi,
+AI writes a natural opening and a relevant fleet-needs question for each stage, using verified company facts. Each opening and question has its own exact supporting source reference and must pass an independent AI grounding review.
 
-I came across {{company}} while researching WA fleet operators. {{observation}}
+- Initial email: open a conversation about the recipient's fleet needs.
+- Follow-up after four business days: gently revisit that question.
+- Final follow-up ten business days after the initial email: offer to leave it there.
 
-I’m Danny from Sapience Analytics. We help businesses set up and use Geotab, with local support and reporting that fits their operations.
+The stage templates guide wording and intent. `{{observation}}` is no longer replaced with “Your website says” plus a quotation. Source references appear beside the previews for review; the email itself uses natural personalised wording.
 
-Is there anything you would like to improve about how you track and manage your vehicles today?
+AI must not invent fleet sizes, existing products, problems, buying intent, prices, savings or promises. It cannot add links or an initial booking link. Unsafe, incomplete or unavailable drafts stay held; there is no template fallback.
 
-## First follow-up — four business days later
+## Fixed copy
 
-Hi,
+The subject follows the stored subject template; the baseline is `Fleet needs at {{company}}`, using the sourced company name. Follow-ups remain in the initial Gmail thread.
 
-Following up on my question about fleet needs at {{company}}. Are vehicle visibility, reporting or the support you receive areas you are looking to improve?
+The initial email retains the stored Geotab offer paragraph. The baseline is:
 
-Happy to understand what you need first.
+> I’m Danny from Sapience Analytics. We help businesses set up and use Geotab, with local support and reporting that fits their operations.
 
-## Final follow-up — ten business days after the initial email
-
-Hi,
-
-One last follow-up about fleet needs at {{company}}. Is this something you are reviewing, or should I leave it here for now?
-
-Thanks for your time.
-
-## Signature on every email
+Every stage retains the current template's signature and unsubscribe instructions:
 
 Danny  
 Sapience Analytics  
@@ -47,12 +40,8 @@ https://sapienceanalytics.com.au
 
 To stop these emails, reply unsubscribe.
 
-## Personalisation rule
+## After approval
 
-`{{company}}` is the sourced company name.
-`{{observation}}` becomes `Your website says: “EXACT VERIFIED QUOTATION”`.
-The system does not invent fleet sizes, email addresses, pricing, savings or purchase intent.
-Follow-ups stay in the initial Gmail thread.
+Approval alone does not start sending. Changing templates pauses sending, clears approval and launch checks, and requires fresh drafts and preview review. Changes to evidence, consent or recipient also invalidate the affected previews; changes after an initial send hold follow-ups.
 
-Approve the current copy in **Agents → Geotab prospecting**.
-The approval does not itself start sending. Google sending consent and launch checks remain required.
+Replies, opt-outs, bounces and matched bookings stop the sequence. AI drafts responses for Danny to review and send. See the [usage guide](geotab-outreach.md) for timing, budgets and recovery.
