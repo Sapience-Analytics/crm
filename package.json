@@ -2,7 +2,7 @@
 	"name": "crm",
 	"private": true,
 	"license": "MIT",
-	"version": "1.18.3",
+	"version": "1.18.4",
 	"scripts": {
 		"prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
 		"build": "turbo run build",
