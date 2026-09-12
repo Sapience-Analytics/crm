@@ -187,6 +187,54 @@ test("reports HTTP 403 code and safe guidance without provider message or secret
 	expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
 
+test("numeric validation errors report only approved request fields and reason words", async () => {
+	fetchSpy.mockResolvedValue(
+		Response.json(
+			{
+				model: null,
+				service_tier: null,
+				error: {
+					code: 400,
+					type: null,
+					param: "parallel_tool_calls",
+					message: `Unsupported parallel_tool_calls. Invalid reasoning effort. Customer: private@example.com ${key}`,
+				},
+			},
+			{ status: 400 },
+		),
+	);
+	const error = await failure();
+	expect(error?.message).toContain("HTTP 400");
+	expect(error?.message).toContain("parallel_tool_calls");
+	expect(error?.message).toContain("reasoning");
+	expect(error?.message).toContain("unsupported");
+	expect(error?.message).not.toContain("private@example.com");
+	expect(error?.message).not.toContain(key);
+	expect(charges).toEqual([]);
+});
+
+test("unexpected envelopes expose only field shapes and known validation paths", async () => {
+	fetchSpy.mockResolvedValue(
+		Response.json(
+			{
+				model: null,
+				service_tier: null,
+				status: key,
+				error: "private@example.com",
+			},
+			{ status: 400 },
+		),
+	);
+	const error = await failure();
+	expect(error?.message).toContain("HTTP 400");
+	expect(error?.message).toContain(
+		"model=null, service_tier=null, status=string, error=string",
+	);
+	expect(error?.message).toContain("paths=status, error");
+	expect(error?.message).not.toContain(key);
+	expect(error?.message).not.toContain("private@example.com");
+});
+
 test("unreadable HTTP failures retain reservations without repeating the request", async () => {
 	fetchSpy.mockResolvedValue(new Response(`private ${key}`, { status: 502 }));
 	const error = await failure();
