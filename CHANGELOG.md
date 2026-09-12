@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.5](https://github.com/Sapience-Analytics/crm/compare/v1.18.4...v1.18.5) (2026-09-12)
+
+
+### Fixes
+
+* **outreach:** reverify sources and preserve personalised draft safeguards ([#32](https://github.com/Sapience-Analytics/crm/issues/32)) ([30b0630](https://github.com/Sapience-Analytics/crm/commit/30b063042952f6b949597eef67bab93e1ebb8967))
+
 ## [1.18.4](https://github.com/Sapience-Analytics/crm/compare/v1.18.3...v1.18.4) (2026-09-12)
 
 
