@@ -411,8 +411,28 @@ model OutreachProspect {
   emailDraftReviewedAt DateTime?
   @@index([emailDraftStatus, emailDraftDueAt])
   deliveries OutreachDelivery[]
+  contactResearch OutreachContactResearch?
   @@index([campaignId, status, nextDueAt])
   @@map("outreachProspect")
+}
+
+model OutreachContactResearch {
+  prospectId String @id
+  prospect OutreachProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  status String @default("PENDING")
+  inputHash String?
+  dueAt DateTime? @default(now())
+  attempts Int @default(0)
+  lease String?
+  leaseUntil DateTime?
+  candidates Json?
+  submittedCandidates Json?
+  error String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, dueAt])
+  @@map("outreachContactResearch")
 }
 
 model OutreachDelivery {

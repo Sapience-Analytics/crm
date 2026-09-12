@@ -7,9 +7,9 @@ import {
 } from "@crm/validation/outreach";
 import { currentDraft } from "@crm/validation/outreach-draft-state";
 import {
+	DEPARTMENT_QUESTIONS,
 	DRAFTING,
-	generatedSequenceSchema,
-	groundedSequence,
+	OUTREACH_PRODUCT_CAPABILITIES,
 } from "@crm/validation/outreach-drafts";
 import { gatewayText, outreachAiText } from "../agent/lib/outreach-ai";
 import { draftOutreachSequence } from "../agent/lib/outreach-drafts";
@@ -25,6 +25,20 @@ const evidence = evidenceSchema.parse({
 	company: "Draft Test",
 	domain: "drafting.example.test",
 	email: "fleet@drafting.example.test",
+	contactTarget: {
+		id: "a".repeat(64),
+		kind: "named",
+		name: "Alex Example",
+		role: "operations",
+		roleTitle: "Operations Manager",
+		email: "fleet@drafting.example.test",
+		sourceUrl: "https://drafting.example.test/contact/",
+		associationQuote:
+			"Alex Example, Operations Manager, fleet@drafting.example.test",
+		employmentQuote: "Alex Example is the Operations Manager at Draft Test.",
+		verified: true,
+		checkedAt: new Date().toISOString(),
+	},
 	industry: "transport",
 	fleetBand: "unknown",
 	fleetEvidence: "unknown",
@@ -47,9 +61,12 @@ const consent = {
 const sequence = {
 	stages: [0, 1, 2].map((stage) => ({
 		stage,
-		opening: stage
-			? "Following up on your carting and bulk haulage work."
-			: "I noticed your carting and bulk haulage services.",
+		opening:
+			stage === 1
+				? "For your carting and bulk haulage work, Geotab trip reports show vehicle journeys."
+				: stage === 2
+					? "One last follow-up about reporting for your carting and bulk haulage work."
+					: "I noticed your carting and bulk haulage services.",
 		question:
 			stage === 2
 				? "Is vehicle reporting useful for that work, or should I leave it here?"
@@ -202,57 +219,38 @@ test("reserves before both paid calls and atomically persists three natural draf
 	expect(generate).toHaveBeenCalledTimes(2);
 });
 
-test("generation receives only dynamic slots and a valid fictional example while review retains full approved templates", async () => {
+test("generation separates verified recipient, selected contact and approved product evidence", async () => {
 	generate.mockImplementation(async (request) => {
 		const input = JSON.parse(request.prompt);
+		expect(input.approvedProductCapabilities).toEqual(
+			OUTREACH_PRODUCT_CAPABILITIES,
+		);
+		expect(input.selectedContact).toEqual({
+			kind: "named",
+			name: "Alex Example",
+			role: "operations",
+			roleTitle: "Operations Manager",
+		});
+		expect(input.verifiedSourceQuote).toBe(quote);
 		if (request.phase === "generation") {
-			expect(input).toMatchObject({
-				company: evidence.company,
-				verifiedSourceQuote: quote,
-			});
 			expect(input.approvedTemplates).toBeUndefined();
 			expect(input.policy).toBeUndefined();
-			for (const fixedCopy of Object.values(DEFAULT_TEMPLATES)) {
-				expect(request.prompt).not.toContain(
-					JSON.stringify(fixedCopy).slice(1, -1),
-				);
-			}
+			expect(input.departmentQuestions).toBeNull();
 			expect(input.generatedSlots).toHaveLength(4);
 			expect(input.stageIntents).toHaveLength(3);
 			expect(request.instructions).toContain(
-				"You are not writing complete emails or a sales pitch.",
+				"Product capabilities come only from approvedProductCapabilities",
 			);
 			expect(request.instructions).toContain(
-				"its facts are not recipient evidence",
+				"Trailer-only evidence cannot support engine, fuel or idling use cases",
 			);
-			expect(input.applicationOwnedAssembly.stage0).toEqual([
-				"greeting",
-				"opening",
-				"fixed sender and Geotab offer",
-				"question",
-				"signature and unsubscribe",
-			]);
-			const example = generatedSequenceSchema.parse(
-				input.fictionalExample.output,
-			);
-			const exampleEvidence = evidenceSchema.parse({
-				...evidence,
-				company: input.fictionalExample.company,
-				sourceQuote: input.fictionalExample.verifiedSourceQuote,
-			});
-			expect(
-				groundedSequence(example, DEFAULT_TEMPLATES, exampleEvidence),
-			).toHaveLength(3);
-			expect(() =>
-				groundedSequence(example, DEFAULT_TEMPLATES, evidence),
-			).toThrow("not exact verified evidence");
 		} else {
 			expect(input.approvedTemplates).toEqual(DEFAULT_TEMPLATES);
-			expect(input.stages).toHaveLength(3);
-			expect(input.stages[0].body).toContain("Sapience Analytics");
-			for (const stage of input.stages) {
-				expect(stage.body).toContain(DEFAULT_TEMPLATES.signature);
-			}
+			expect(input.stages[0].body).toStartWith("Hi Alex,");
+			expect(input.stages[1].body).toContain("Geotab trip reports");
+			expect(request.instructions).toContain(
+				"A product capability does not require matching recipient-source text",
+			);
 		}
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : sequence),
@@ -263,6 +261,97 @@ test("generation receives only dynamic slots and a valid fictional example while
 	await draftOutreachSequence();
 	expect((await record()).emailDraftStatus).toBe("READY");
 	expect(generate).toHaveBeenCalledTimes(2);
+});
+
+test("department preparation persists the same routing copy that currentDraft validates", async () => {
+	const department = evidenceSchema.parse({
+		...evidence,
+		contactTarget: {
+			...evidence.contactTarget,
+			kind: "department",
+			name: null,
+			role: "department",
+			roleTitle: "Operations team",
+		},
+	});
+	await db.outreachProspect.update({
+		where: { id },
+		data: { evidence: department },
+	});
+	const generated = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			question: DEPARTMENT_QUESTIONS[stage.stage],
+		})),
+	};
+	generate.mockImplementation(async (request) => {
+		const input = JSON.parse(request.prompt);
+		expect(input.selectedContact.name).toBeNull();
+		if (request.phase === "generation")
+			expect(input.departmentQuestions).toEqual(DEPARTMENT_QUESTIONS);
+		return {
+			text: JSON.stringify(request.phase === "review" ? review : generated),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	await draftOutreachSequence();
+	const row = await record();
+	const draft = currentDraft(row, DEFAULT_TEMPLATES);
+	expect(draft).not.toBeNull();
+	for (const stage of draft?.stages ?? []) {
+		expect(stage.body).toStartWith("Hi team,\n\n");
+		expect(stage.question).toBe(DEPARTMENT_QUESTIONS[stage.stage]);
+		expect(stage.body).toContain(stage.question);
+	}
+	expect(row.emailDrafts).toEqual(draft);
+});
+
+test("missing or mismatched selected contact prevents paid drafting", async () => {
+	for (const contactTarget of [
+		undefined,
+		{ ...evidence.contactTarget, email: "other@drafting.example.test" },
+	]) {
+		const candidate = evidenceSchema.parse({ ...evidence, contactTarget });
+		await db.outreachProspect.update({
+			where: { id },
+			data: { evidence: candidate, emailDraftDueAt: new Date(0) },
+		});
+		await draftOutreachSequence();
+		expect((await record()).emailDraftStatus).toBe("HELD");
+		expect((await record()).emailDrafts).toBeNull();
+	}
+	expect(generate).not.toHaveBeenCalled();
+	expect(
+		await db.outreachBudget.findUnique({ where: { id: budgetId } }),
+	).toBeNull();
+});
+
+test("changed selected contact invalidates exact persisted copy and its preview review", async () => {
+	await draftOutreachSequence();
+	const row = await record();
+	expect(currentDraft(row, DEFAULT_TEMPLATES)).not.toBeNull();
+	const changed = evidenceSchema.parse({
+		...evidence,
+		contactTarget: {
+			...evidence.contactTarget,
+			name: "Jordan Example",
+			associationQuote:
+				"Jordan Example, Operations Manager, fleet@drafting.example.test",
+		},
+	});
+	expect(
+		currentDraft({ ...row, evidence: changed }, DEFAULT_TEMPLATES),
+	).toBeNull();
+	const draft = currentDraft(row, DEFAULT_TEMPLATES);
+	if (!draft) throw new Error("Expected persisted draft");
+	draft.stages[0].body = draft.stages[0].body.replace(
+		"Hi Alex,",
+		"Hi Someone,",
+	);
+	expect(
+		currentDraft({ ...row, emailDrafts: draft }, DEFAULT_TEMPLATES),
+	).toBeNull();
 });
 
 test("manual prospects receive the same three drafts without changing exclusion or allocating slots", async () => {

@@ -369,6 +369,7 @@ export class OutreachService {
 		await this.assertOwner(userId);
 		await this.db.$transaction(async (tx) => {
 			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${OUTREACH.id} FOR UPDATE`;
+			await tx.$queryRaw`SELECT id FROM "outreachProspect" WHERE id = ${input.id} FOR UPDATE`;
 			const prospect = await tx.outreachProspect.findUniqueOrThrow({
 				where: { id: input.id },
 			});
@@ -409,8 +410,12 @@ export class OutreachService {
 			const slots = await tx.outreachProspect.count({
 				where: { pilotSlot: { not: null } },
 			});
-			const slot = slots < OUTREACH.pilotSize ? slots + 1 : null;
-			const manual = slot !== null && slot <= OUTREACH.manualSize;
+			const slot =
+				prospect.pilotSlot ?? (slots < OUTREACH.pilotSize ? slots + 1 : null);
+			const manual =
+				prospect.pilotSlot !== null
+					? prospect.manual
+					: prospect.manual || (slot !== null && slot <= OUTREACH.manualSize);
 			await tx.outreachProspect.update({
 				where: { id: prospect.id },
 				data: {

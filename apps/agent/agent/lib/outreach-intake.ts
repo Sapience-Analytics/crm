@@ -102,6 +102,11 @@ async function verifyCandidate(id: string, ownerId: string) {
 					sourceVerificationDueAt: null,
 				},
 			});
+			await tx.outreachContactResearch.upsert({
+				where: { prospectId: id },
+				create: { prospectId: id },
+				update: {},
+			});
 		});
 	} catch (error) {
 		await db.outreachProspect.updateMany({
@@ -183,7 +188,11 @@ export async function runOutreachIntake() {
 				{ sourceVerificationLeaseUntil: { lt: now } },
 			],
 		},
-		orderBy: [{ sourceVerificationDueAt: "asc" }, { createdAt: "asc" }],
+		orderBy: [
+			{ pilotSlot: { sort: "asc", nulls: "last" } },
+			{ sourceVerificationDueAt: "asc" },
+			{ createdAt: "asc" },
+		],
 		take: OUTREACH_INTAKE.perTick,
 		select: { id: true },
 	});

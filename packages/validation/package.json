@@ -4,6 +4,9 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./outreach-contacts": "./src/outreach-contacts.ts",
+		"./outreach-contact-target": "./src/outreach-contact-target.ts",
+		"./outreach-contact-state": "./src/outreach-contact-state.ts",
 		"./outreach-draft-state": "./src/outreach-draft-state.ts",
 		"./outreach-drafts": "./src/outreach-drafts.ts",
 		"./outreach-intake": "./src/outreach-intake.ts",
