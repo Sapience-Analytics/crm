@@ -6,7 +6,11 @@ import {
 	OUTREACH,
 } from "@crm/validation/outreach";
 import { currentDraft } from "@crm/validation/outreach-draft-state";
-import { DRAFTING } from "@crm/validation/outreach-drafts";
+import {
+	DRAFTING,
+	generatedSequenceSchema,
+	groundedSequence,
+} from "@crm/validation/outreach-drafts";
 import { gatewayText, outreachAiText } from "../agent/lib/outreach-ai";
 import { draftOutreachSequence } from "../agent/lib/outreach-drafts";
 import { draftOutreachReply } from "../agent/lib/outreach-replies";
@@ -195,6 +199,69 @@ test("reserves before both paid calls and atomically persists three natural draf
 	);
 	await due();
 	await draftOutreachSequence();
+	expect(generate).toHaveBeenCalledTimes(2);
+});
+
+test("generation receives only dynamic slots and a valid fictional example while review retains full approved templates", async () => {
+	generate.mockImplementation(async (request) => {
+		const input = JSON.parse(request.prompt);
+		if (request.phase === "generation") {
+			expect(input).toMatchObject({
+				company: evidence.company,
+				verifiedSourceQuote: quote,
+			});
+			expect(input.approvedTemplates).toBeUndefined();
+			expect(input.policy).toBeUndefined();
+			for (const fixedCopy of Object.values(DEFAULT_TEMPLATES)) {
+				expect(request.prompt).not.toContain(
+					JSON.stringify(fixedCopy).slice(1, -1),
+				);
+			}
+			expect(input.generatedSlots).toHaveLength(4);
+			expect(input.stageIntents).toHaveLength(3);
+			expect(request.instructions).toContain(
+				"You are not writing complete emails or a sales pitch.",
+			);
+			expect(request.instructions).toContain(
+				"its facts are not recipient evidence",
+			);
+			expect(input.applicationOwnedAssembly.stage0).toEqual([
+				"greeting",
+				"opening",
+				"fixed sender and Geotab offer",
+				"question",
+				"signature and unsubscribe",
+			]);
+			const example = generatedSequenceSchema.parse(
+				input.fictionalExample.output,
+			);
+			const exampleEvidence = evidenceSchema.parse({
+				...evidence,
+				company: input.fictionalExample.company,
+				sourceQuote: input.fictionalExample.verifiedSourceQuote,
+			});
+			expect(
+				groundedSequence(example, DEFAULT_TEMPLATES, exampleEvidence),
+			).toHaveLength(3);
+			expect(() =>
+				groundedSequence(example, DEFAULT_TEMPLATES, evidence),
+			).toThrow("not exact verified evidence");
+		} else {
+			expect(input.approvedTemplates).toEqual(DEFAULT_TEMPLATES);
+			expect(input.stages).toHaveLength(3);
+			expect(input.stages[0].body).toContain("Sapience Analytics");
+			for (const stage of input.stages) {
+				expect(stage.body).toContain(DEFAULT_TEMPLATES.signature);
+			}
+		}
+		return {
+			text: JSON.stringify(request.phase === "review" ? review : sequence),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	await draftOutreachSequence();
+	expect((await record()).emailDraftStatus).toBe("READY");
 	expect(generate).toHaveBeenCalledTimes(2);
 });
 
