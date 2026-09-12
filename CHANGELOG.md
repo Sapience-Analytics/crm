@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.3](https://github.com/Sapience-Analytics/crm/compare/v1.17.2...v1.17.3) (2026-09-12)
+
+
+### Fixes
+
+* **api:** reconcile Gmail rewritten message identities ([a3b1b8b](https://github.com/Sapience-Analytics/crm/commit/a3b1b8bd1175b4485b6c177a4cf6579b0b990c4d))
+
 ## [1.17.2](https://github.com/Sapience-Analytics/crm/compare/v1.17.1...v1.17.2) (2026-09-12)
 
 
