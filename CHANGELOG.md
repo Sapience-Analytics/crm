@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.3](https://github.com/Sapience-Analytics/crm/compare/v1.19.2...v1.19.3) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** include approved department questions in draft review ([4c61a79](https://github.com/Sapience-Analytics/crm/commit/4c61a79ad8733193b6731aa42ae72c9aa45d9d28))
+
 ## [1.19.2](https://github.com/Sapience-Analytics/crm/compare/v1.19.1...v1.19.2) (2026-09-12)
 
 
