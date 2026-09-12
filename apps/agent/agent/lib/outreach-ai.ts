@@ -40,13 +40,41 @@ const costSchema = z.object({
 		]),
 	}),
 });
+const rateLimitCodeSchema = z
+	.enum(["rate_limit_exceeded", "insufficient_quota"])
+	.optional()
+	.catch(undefined);
 const requestErrorFactSchema = z.object({
 	name: z.enum(["AbortError", "TimeoutError", "other"]).catch("other"),
 	statusCode: z.number().int().min(400).max(599).optional().catch(undefined),
+	data: z
+		.object({
+			error: z.object({
+				code: rateLimitCodeSchema,
+				type: rateLimitCodeSchema,
+			}),
+		})
+		.optional()
+		.catch(undefined),
+	responseHeaders: z
+		.object({
+			"retry-after": z
+				.string()
+				.trim()
+				.regex(/^\d{1,4}$/)
+				.transform(Number)
+				.pipe(z.number().int().min(0).max(3600))
+				.optional()
+				.catch(undefined),
+		})
+		.optional()
+		.catch(undefined),
 });
-const requestErrorSchema = requestErrorFactSchema.extend({
+const causedRequestErrorSchema = requestErrorFactSchema.extend({
 	cause: requestErrorFactSchema.nullish().catch(null),
-	lastError: requestErrorFactSchema.nullish().catch(null),
+});
+const requestErrorSchema = causedRequestErrorSchema.extend({
+	lastError: causedRequestErrorSchema.nullish().catch(null),
 });
 export class OutreachAiError extends Error {}
 
@@ -95,9 +123,25 @@ export const gatewayText = {
 		} catch (error) {
 			const parsed = requestErrorSchema.safeParse(error);
 			const facts = parsed.success
-				? [parsed.data, parsed.data.cause, parsed.data.lastError]
+				? [
+						parsed.data,
+						parsed.data.cause,
+						parsed.data.lastError,
+						parsed.data.lastError?.cause,
+					]
 				: [];
 			const status = facts.find((fact) => fact?.statusCode)?.statusCode;
+			const rateLimitFacts = facts.filter((fact) => fact?.statusCode === 429);
+			const code =
+				rateLimitFacts
+					.map((fact) => fact?.data?.error.code)
+					.find((value) => value !== undefined) ??
+				rateLimitFacts
+					.map((fact) => fact?.data?.error.type)
+					.find((value) => value !== undefined);
+			const retryAfter = rateLimitFacts
+				.map((fact) => fact?.responseHeaders?.["retry-after"])
+				.find((value) => value !== undefined);
 			const reason =
 				abortSignal.aborted ||
 				facts.some((fact) => fact?.name === "TimeoutError")
@@ -107,8 +151,12 @@ export const gatewayText = {
 						: status
 							? `HTTP ${status}`
 							: "unclassified";
+			const detail =
+				reason === "HTTP 429"
+					? `; code=${code ?? "unavailable"}; retry-after=${retryAfter === undefined ? "unavailable" : `${retryAfter}s`}`
+					: "";
 			throw new OutreachAiError(
-				`AI ${request.phase} request failed (${reason}). Its reservation remains charged; no immediate retry occurs.`,
+				`AI ${request.phase} request failed (${reason}${detail}). Its reservation remains charged; no immediate retry occurs.`,
 			);
 		}
 	},

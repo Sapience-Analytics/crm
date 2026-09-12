@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.6](https://github.com/Sapience-Analytics/crm/compare/v1.18.5...v1.18.6) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** expose safe outreach rate-limit diagnostics ([#35](https://github.com/Sapience-Analytics/crm/issues/35)) ([0fdd9a2](https://github.com/Sapience-Analytics/crm/commit/0fdd9a20ec0017454e01c9b05a24acc705c71422))
+
 ## [1.18.5](https://github.com/Sapience-Analytics/crm/compare/v1.18.4...v1.18.5) (2026-09-12)
 
 
