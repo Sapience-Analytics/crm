@@ -1,0 +1,88 @@
+{
+	"sourceCommit": "9a9d43f5a0811e888e0f8c7243cdb760b02cd49c",
+	"templates": {
+		"subject": "Fleet needs at {{company}}",
+		"initial": "Hi,\n\nI came across {{company}} while researching WA fleet operators. {{observation}}\n\nI’m Danny from Sapience Analytics. We help businesses set up and use Geotab, with local support and reporting that fits their operations.\n\nIs there anything you would like to improve about how you track and manage your vehicles today?",
+		"followup1": "Hi,\n\nFollowing up on my question about fleet needs at {{company}}. Are vehicle visibility, reporting or the support you receive areas you are looking to improve?\n\nHappy to understand what you need first.",
+		"followup2": "Hi,\n\nOne last follow-up about fleet needs at {{company}}. Is this something you are reviewing, or should I leave it here for now?\n\nThanks for your time.",
+		"signature": "Danny\nSapience Analytics\ndanny@sapienceanalytics.com.au\nhttps://sapienceanalytics.com.au\n\nTo stop these emails, reply unsubscribe."
+	},
+	"prospect": {
+		"email": "fleet@legacy.example.test",
+		"evidence": {
+			"company": "Legacy Test Fleet",
+			"domain": "legacy.example.test",
+			"email": "fleet@legacy.example.test",
+			"industry": "transport",
+			"fleetBand": "unknown",
+			"fleetEvidence": "Fleet count is unknown.",
+			"fit": "Western Australian road transport operator.",
+			"sourceUrl": "https://legacy.example.test/services/",
+			"sourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+			"waQuote": "Western Australia",
+			"checkedAt": "2026-09-12T00:00:00.000Z",
+			"verified": true,
+			"contactTarget": {
+				"kind": "department",
+				"name": null,
+				"role": "department",
+				"roleTitle": "Operations team",
+				"email": "fleet@legacy.example.test",
+				"sourceUrl": "https://legacy.example.test/contact/",
+				"associationQuote": "Operations team fleet@legacy.example.test",
+				"employmentQuote": "Operations team fleet@legacy.example.test",
+				"id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"verified": true,
+				"checkedAt": "2026-09-12T00:00:00.000Z"
+			}
+		},
+		"consent": {
+			"kind": "express",
+			"evidence": "Requested information about Geotab vehicle reporting.",
+			"source": "controlled-fixture-request",
+			"roleRelevant": true,
+			"noRestriction": true,
+			"verifiedBy": "legacy-test-owner",
+			"verifiedAt": "2026-09-12T00:00:00.000Z"
+		},
+		"emailDraftStatus": "READY",
+		"emailDraftHash": "d5ee3d2adbdcc5cc89120d67b99b3654dd46ebc2bb317318f4af8b456272f94e",
+		"emailDrafts": {
+			"version": "contact-grounded-v2",
+			"inputHash": "d5ee3d2adbdcc5cc89120d67b99b3654dd46ebc2bb317318f4af8b456272f94e",
+			"campaignHash": "659f8a1fef5f2c1b491f519b017755313c3ad31e9873f47431899c1c0d685cf4",
+			"model": "openai/gpt-5.4-mini",
+			"groundingReviewed": true,
+			"stages": [
+				{
+					"stage": 0,
+					"opening": "I noticed Legacy Test Fleet's carting and bulk haulage services.",
+					"question": "Could you point me to the person responsible for vehicle tracking or fleet reporting?",
+					"openingSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"questionSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"subject": "Fleet needs at Legacy Test Fleet",
+					"body": "Hi team,\n\nI noticed Legacy Test Fleet's carting and bulk haulage services.\n\nI’m Danny from Sapience Analytics. We help businesses set up and use Geotab, with local support and reporting that fits their operations.\n\nCould you point me to the person responsible for vehicle tracking or fleet reporting?\n\nDanny\nSapience Analytics\ndanny@sapienceanalytics.com.au\nhttps://sapienceanalytics.com.au\n\nTo stop these emails, reply unsubscribe."
+				},
+				{
+					"stage": 1,
+					"opening": "For carting and bulk haulage work, Geotab trip reports show vehicle journeys.",
+					"question": "Who would be the right person to speak with about vehicle tracking or fleet reporting?",
+					"openingSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"questionSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"subject": "Fleet needs at Legacy Test Fleet",
+					"body": "Hi team,\n\nFor carting and bulk haulage work, Geotab trip reports show vehicle journeys.\n\nWho would be the right person to speak with about vehicle tracking or fleet reporting?\n\nDanny\nSapience Analytics\ndanny@sapienceanalytics.com.au\nhttps://sapienceanalytics.com.au\n\nTo stop these emails, reply unsubscribe."
+				},
+				{
+					"stage": 2,
+					"opening": "One last follow-up about reporting for carting and bulk haulage work.",
+					"question": "Could you point me to the right person, or should I leave it there?",
+					"openingSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"questionSourceQuote": "We operate trucks for carting and bulk haulage in Western Australia.",
+					"subject": "Fleet needs at Legacy Test Fleet",
+					"body": "Hi team,\n\nOne last follow-up about reporting for carting and bulk haulage work.\n\nCould you point me to the right person, or should I leave it there?\n\nDanny\nSapience Analytics\ndanny@sapienceanalytics.com.au\nhttps://sapienceanalytics.com.au\n\nTo stop these emails, reply unsubscribe."
+				}
+			]
+		}
+	},
+	"reviewHash": "ae69373efa7b6e00de2169e350464796caf0729e5f5e69f0d4b4b5a949240be9"
+}

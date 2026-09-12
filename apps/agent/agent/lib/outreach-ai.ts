@@ -40,6 +40,12 @@ const costSchema = z.object({
 		]),
 	}),
 });
+const fastReviewRouteSchema = z.object({
+	gateway: z.object({
+		routing: z.object({ speed: z.literal("fast") }),
+		serviceTier: z.literal(DRAFTING.reviewServiceTier),
+	}),
+});
 const rateLimitCodeSchema = z
 	.enum(["rate_limit_exceeded", "insufficient_quota"])
 	.optional()
@@ -78,12 +84,29 @@ const requestErrorSchema = causedRequestErrorSchema.extend({
 });
 export class OutreachAiError extends Error {}
 
-export function catalogPrice(catalog: z.infer<typeof catalogSchema>) {
-	const matches = catalog.data.filter((model) => model.id === DRAFTING.model);
+function phaseModel(phase: TextRequest["phase"]) {
+	return phase === "review" ? DRAFTING.reviewModel : DRAFTING.model;
+}
+
+export function catalogPrice(
+	catalog: z.infer<typeof catalogSchema>,
+	phase: TextRequest["phase"] = "generation",
+) {
+	const matches = catalog.data.filter(
+		(model) => model.id === phaseModel(phase),
+	);
 	const price = textPriceSchema.safeParse(matches[0]?.pricing);
 	if (matches.length !== 1 || !price.success || price.data.varies_by_provider)
 		throw new OutreachAiError(
 			"Selected AI model token pricing is unavailable or ambiguous. Drafts stay on hold.",
+		);
+	if (
+		phase === "review" &&
+		(price.data.input !== DRAFTING.reviewExpectedInputPrice ||
+			price.data.output !== DRAFTING.reviewExpectedOutputPrice)
+	)
+		throw new OutreachAiError(
+			"Fast review model pricing changed. Drafts stay held for cost review.",
 		);
 	return price.data;
 }
@@ -103,23 +126,40 @@ export const gatewayText = {
 				instructions: request.instructions,
 				prompt: request.prompt,
 				maxOutputTokens: request.maxOutputTokens,
-				model: DRAFTING.model,
+				model: phaseModel(request.phase),
 				maxRetries: 0,
 				abortSignal,
 				providerOptions: {
-					gateway: { only: ["openai"] },
-					openai: { serviceTier: "default", reasoningEffort: "low" },
+					gateway:
+						request.phase === "review"
+							? { only: ["openai"], allowFallbackFromFast: false }
+							: { only: ["openai"] },
+					openai: {
+						serviceTier:
+							request.phase === "review"
+								? DRAFTING.reviewServiceTier
+								: "default",
+						reasoningEffort: "low",
+					},
 				},
 			});
 			const step = await result.finalStep;
 			const cost = costSchema.safeParse(step.providerMetadata);
-			return {
+			const response = {
 				text: result.text,
 				finishReason: result.finishReason,
 				costMicroUsd: cost.success
 					? Math.ceil(cost.data.gateway.cost * 1_000_000)
 					: null,
 			};
+			return request.phase === "review"
+				? {
+						...response,
+						reviewRouteVerified: fastReviewRouteSchema.safeParse(
+							step.providerMetadata,
+						).success,
+					}
+				: response;
 		} catch (error) {
 			const parsed = requestErrorSchema.safeParse(error);
 			const facts = parsed.success
@@ -195,7 +235,7 @@ export async function outreachAiText(request: TextRequest) {
 			"AI model pricing is unavailable. Drafts stay on hold.",
 		);
 	}
-	const price = catalogPrice(catalog);
+	const price = catalogPrice(catalog, request.phase);
 	if (
 		(price.input * (inputBytes + DRAFTING.inputOverheadTokens) +
 			price.output * request.maxOutputTokens) *
@@ -235,12 +275,29 @@ export async function outreachAiText(request: TextRequest) {
 			throw new OutreachAiError(reason);
 		}
 	}
+	if (
+		request.phase === "review" &&
+		!("reviewRouteVerified" in result && result.reviewRouteVerified === true)
+	)
+		throw new OutreachAiError(
+			"Fast review delivery proof is missing or mismatched. Drafts stay held; no automatic retry occurs.",
+		);
 	const finishReason = z
 		.enum(["stop", "length", "content-filter", "tool-calls", "error", "other"])
 		.safeParse(result.finishReason);
 	if (!finishReason.success || finishReason.data !== "stop")
 		throw new OutreachAiError(
 			`AI ${request.phase} output did not finish normally (${finishReason.success ? finishReason.data : "unrecognized"}). Drafts stay held.`,
+		);
+	if (request.phase === "review")
+		process.stderr.write(
+			`${JSON.stringify({
+				event: "outreach.fast_review_verified",
+				model: DRAFTING.reviewModel,
+				speed: "fast",
+				serviceTier: DRAFTING.reviewServiceTier,
+				costMicroUsd: result.costMicroUsd,
+			})}\n`,
 		);
 	return result.text;
 }

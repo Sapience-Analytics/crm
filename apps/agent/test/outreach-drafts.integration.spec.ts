@@ -6,10 +6,14 @@ import {
 	evidenceSchema,
 	OUTREACH,
 } from "@crm/validation/outreach";
-import { currentDraft } from "@crm/validation/outreach-draft-state";
+import {
+	currentDraft,
+	draftReviewHash,
+} from "@crm/validation/outreach-draft-state";
 import {
 	DEPARTMENT_QUESTIONS,
 	DRAFTING,
+	draftArtifactSchema,
 	OUTREACH_PRODUCT_CAPABILITIES,
 	persistedStageSchema,
 } from "@crm/validation/outreach-drafts";
@@ -145,12 +149,17 @@ beforeEach(async () => {
 					id: DRAFTING.model,
 					pricing: { input: "0.00000075", output: "0.0000045" },
 				},
+				{
+					id: DRAFTING.reviewModel,
+					pricing: { input: "0.0000015", output: "0.000009" },
+				},
 			],
 		}),
 	);
 	generate.mockImplementation(async (request) => ({
 		text: JSON.stringify(request.phase === "review" ? review : sequence),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 });
@@ -192,6 +201,7 @@ test("reserves before both paid calls and atomically persists three natural draf
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : sequence),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -286,6 +296,7 @@ test("generation separates verified recipient, selected contact and approved pro
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : sequence),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -323,6 +334,7 @@ test("department preparation persists the same routing copy that currentDraft va
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : generated),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -376,7 +388,20 @@ const reviewContextSchema = reviewCopySchema.extend({
 	approvedDepartmentQuestions: z.array(z.string()).length(3).nullable(),
 });
 
-function useWorkerSdkTransport(reviewResult = review) {
+const reviewGatewayMetadata = z.object({
+	cost: z.string().optional(),
+	routing: z.object({ speed: z.string() }).optional(),
+	serviceTier: z.string().optional(),
+});
+
+function useWorkerSdkTransport(
+	reviewResult = review,
+	metadata: z.infer<typeof reviewGatewayMetadata> = {
+		cost: "0.001",
+		routing: { speed: "fast" },
+		serviceTier: "priority",
+	},
+) {
 	const requests: Request[] = [];
 	generate.mockImplementation(realGenerate);
 	globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({
@@ -402,7 +427,9 @@ function useWorkerSdkTransport(reviewResult = review) {
 					},
 					outputTokens: { total: 10, text: 10, reasoning: 0 },
 				},
-				providerMetadata: { gateway: { cost: "0.001" } },
+				providerMetadata: {
+					gateway: requests.length === 1 ? { cost: "0.001" } : metadata,
+				},
 			});
 		},
 	});
@@ -455,12 +482,144 @@ test.each(["department", "named"])(
 		}
 		const row = await record();
 		expect(row.emailDraftStatus).toBe("READY");
-		expect(currentDraft(row, DEFAULT_TEMPLATES)?.stages).toEqual(input.stages);
+		const draft = currentDraft(row, DEFAULT_TEMPLATES);
+		expect(draft?.stages).toEqual(input.stages);
+		expect(draft?.reviewModel).toBe(DRAFTING.reviewModel);
+		expect(draft?.model).toBe(DRAFTING.model);
+		if (!draft) throw new Error("Expected verified trial draft");
+		expect(draftReviewHash({ ...draft, stages: input.stages })).toBe(
+			draftReviewHash(draftArtifactSchema.parse(row.emailDrafts)),
+		);
+		expect(reviewRequest.headers.get("ai-language-model-id")).toBe(
+			DRAFTING.reviewModel,
+		);
+		expect(OUTREACH.aiReserveMicroUsd).toBe(100_000);
+		expect(
+			((DRAFTING.maxInputBytes + DRAFTING.inputOverheadTokens) *
+				DRAFTING.reviewExpectedInputPrice +
+				DRAFTING.maxOutputTokens * DRAFTING.reviewExpectedOutputPrice) *
+				1_000_000,
+		).toBeLessThanOrEqual(OUTREACH.aiReserveMicroUsd);
 		expect(await budget()).toMatchObject({
 			calls: 2,
 			actualMicroUsd: 2000,
 			reservedMicroUsd: 2000,
 		});
+	},
+);
+
+for (const fixture of [
+	{
+		name: "missing routing proof with known cost",
+		metadata: { cost: "0.001" },
+		actualMicroUsd: 2000,
+		reservedMicroUsd: 2000,
+	},
+	{
+		name: "base speed with known cost",
+		metadata: {
+			cost: "0.001",
+			routing: { speed: "base" },
+			serviceTier: "priority",
+		},
+		actualMicroUsd: 2000,
+		reservedMicroUsd: 2000,
+	},
+	{
+		name: "wrong tier with known cost",
+		metadata: {
+			cost: "0.001",
+			routing: { speed: "fast" },
+			serviceTier: "default",
+		},
+		actualMicroUsd: 2000,
+		reservedMicroUsd: 2000,
+	},
+	{
+		name: "missing routing proof with unknown cost",
+		metadata: {},
+		actualMicroUsd: 1000,
+		reservedMicroUsd: 1000 + OUTREACH.aiReserveMicroUsd,
+	},
+])
+	test(`actual SDK review response holds ${fixture.name} without an immediate retry`, async () => {
+		const requests = useWorkerSdkTransport(review, fixture.metadata);
+		await draftOutreachSequence();
+		expect(requests).toHaveLength(2);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftReviewedAt: null,
+			emailDraftLease: null,
+			emailDraftAttempts: 1,
+			initialSentAt: null,
+			emailDraftError:
+				"Fast review delivery proof is missing or mismatched. Drafts stay held; no automatic retry occurs.",
+		});
+		expect(await budget()).toMatchObject({
+			calls: 2,
+			actualMicroUsd: fixture.actualMicroUsd,
+			reservedMicroUsd: fixture.reservedMicroUsd,
+		});
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+		await draftOutreachSequence();
+		expect(requests).toHaveLength(2);
+		expect((await record()).emailDraftAttempts).toBe(1);
+	});
+
+test.each(["missing", "input drift", "output drift"])(
+	"review catalog %s prevents a paid review after generation settles",
+	async (failure) => {
+		fetchSpy.mockImplementation(async () =>
+			Response.json({
+				data: [
+					{
+						id: DRAFTING.model,
+						pricing: { input: "0.00000075", output: "0.0000045" },
+					},
+					...(failure === "missing"
+						? []
+						: [
+								{
+									id: DRAFTING.reviewModel,
+									pricing: {
+										input:
+											failure === "input drift" ? "0.0000016" : "0.0000015",
+										output:
+											failure === "output drift" ? "0.0000091" : "0.000009",
+									},
+								},
+							]),
+				],
+			}),
+		);
+		const requests = useWorkerSdkTransport();
+		await draftOutreachSequence();
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.headers.get("ai-language-model-id")).toBe(
+			DRAFTING.model,
+		);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftReviewedAt: null,
+			emailDraftError:
+				failure === "missing"
+					? "Selected AI model token pricing is unavailable or ambiguous. Drafts stay on hold."
+					: "Fast review model pricing changed. Drafts stay held for cost review.",
+		});
+		expect(await budget()).toMatchObject({
+			calls: 1,
+			actualMicroUsd: 1000,
+			reservedMicroUsd: 1000,
+		});
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+		await draftOutreachSequence();
+		expect(requests).toHaveLength(1);
 	},
 );
 
@@ -507,6 +666,7 @@ test.each(["question", "openingSourceQuote", "questionSourceQuote"])(
 				stages: sequence.stages.map((stage) => ({ ...stage, [field]: null })),
 			}),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		});
 		await draftOutreachSequence();
@@ -556,6 +716,7 @@ test("department generated questions and source placeholders are replaced before
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : generated),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -592,6 +753,7 @@ test.each([0, 1, 2])(
 				})),
 			}),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		});
 		await draftOutreachSequence();
@@ -635,6 +797,7 @@ test("named questions stay unchanged while misquoted source references bind to e
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : generated),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -663,6 +826,7 @@ test.each([0, 1, 2])(
 				})),
 			}),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		});
 		await draftOutreachSequence();
@@ -726,6 +890,7 @@ test("department semantic rejection still holds the final assembled copy after q
 				request.phase === "review" ? rejectedReview : generated,
 			),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: "stop",
 		};
 	});
@@ -874,6 +1039,7 @@ for (const drift of [
 			return {
 				text: JSON.stringify(request.phase === "review" ? review : sequence),
 				costMicroUsd: 3000,
+				reviewRouteVerified: true,
 				finishReason: "stop",
 			};
 		});
@@ -897,6 +1063,7 @@ test("independent grounding rejection holds all stages without template fallback
 				: sequence,
 		),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 	await draftOutreachSequence();
@@ -926,6 +1093,7 @@ test("grounding diagnostics name every rejected fixed flag and preserve the paid
 				: sequence,
 		),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 	await draftOutreachSequence();
@@ -950,6 +1118,7 @@ test("unrecognized review prose stays hidden instead of entering safe flag diagn
 				: sequence,
 		),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 	await draftOutreachSequence();
@@ -980,13 +1149,21 @@ test("grounding rejection logs only bounded validated copy and redacts source co
 			request.phase === "review" ? rejectedReview : rejectedSequence,
 		),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 	const writes = spyOn(process.stderr, "write").mockReturnValue(true);
 	try {
 		await draftOutreachSequence();
-		expect(writes).toHaveBeenCalledTimes(1);
-		const output = String(writes.mock.calls[0][0]);
+		const outputs = writes.mock.calls
+			.map(([chunk]) => String(chunk))
+			.filter(
+				(output) =>
+					z.object({ event: z.string() }).parse(JSON.parse(output)).event ===
+					"outreach.grounding_rejected",
+			);
+		expect(outputs).toHaveLength(1);
+		const output = z.string().parse(outputs[0]);
 		const event = JSON.parse(output);
 		expect(Object.keys(event).sort()).toEqual([
 			"event",
@@ -1027,6 +1204,7 @@ test("unsupported claim fails before the second paid review", async () => {
 			})),
 		}),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	});
 	await draftOutreachSequence();
@@ -1041,6 +1219,7 @@ test("unknown cost remains reserved, shared reply drafting uses the same monthly
 				? "Thank you. Which reporting needs would you like to discuss?"
 				: JSON.stringify(request.phase === "review" ? review : sequence),
 		costMicroUsd: null,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	}));
 	await draftOutreachSequence();
@@ -1082,6 +1261,10 @@ test("non-text catalog entries do not block selected-model drafting or reservati
 				{
 					id: DRAFTING.model,
 					pricing: { input: "0.00000075", output: "0.0000045" },
+				},
+				{
+					id: DRAFTING.reviewModel,
+					pricing: { input: "0.0000015", output: "0.000009" },
 				},
 			],
 		}),
@@ -1127,6 +1310,7 @@ test("actual overrun is reconciled and pauses both sequence and reply AI", async
 	generate.mockResolvedValue({
 		text: JSON.stringify(sequence),
 		costMicroUsd: OUTREACH.aiReserveMicroUsd + 1,
+		reviewRouteVerified: true,
 		finishReason: "stop",
 	});
 	await draftOutreachSequence();
@@ -1171,6 +1355,7 @@ for (const phase of ["generation", "review"] as const)
 					? "{partial private provider copy"
 					: JSON.stringify(sequence),
 			costMicroUsd: 3000,
+			reviewRouteVerified: true,
 			finishReason: request.phase === phase ? "length" : "stop",
 		}));
 		await draftOutreachSequence();
@@ -1201,6 +1386,7 @@ test("other finish reasons expose only the allowed reason and phase, never provi
 				? "Private provider prose with Bearer secret"
 				: JSON.stringify(sequence),
 		costMicroUsd: 3000,
+		reviewRouteVerified: true,
 		finishReason: request.phase === "review" ? "other" : "stop",
 	}));
 	await draftOutreachSequence();

@@ -263,6 +263,7 @@ export async function draftOutreachSequence() {
 				model: DRAFTING.model,
 				groundingReviewed: true,
 				stages,
+				reviewModel: DRAFTING.reviewModel,
 			});
 			await db.$transaction(async (tx) => {
 				await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${campaign.id} FOR UPDATE`;
