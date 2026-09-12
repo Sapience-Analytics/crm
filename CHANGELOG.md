@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.2](https://github.com/Sapience-Analytics/crm/compare/v1.19.1...v1.19.2) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** assemble approved routing questions and source references ([d76875f](https://github.com/Sapience-Analytics/crm/commit/d76875fbd94f2e05c51c5159a26a62274778e4d1))
+
 ## [1.19.1](https://github.com/Sapience-Analytics/crm/compare/v1.19.0...v1.19.1) (2026-09-12)
 
 
