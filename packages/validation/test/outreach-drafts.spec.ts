@@ -66,6 +66,22 @@ function validationMessage(generated: ReturnType<typeof sequence>) {
 }
 
 describe("grounded personalised sequence", () => {
+	test.each([
+		"I came across SKT Logistics while looking into your reliable long and short distance haul services, and I wanted to share a Geotab option with you.",
+		"With RDS having a wide selection of vehicles available, I wanted to reach out with our Geotab setup and support for the fleet side.",
+	])(
+		"preserves a neutral Geotab introduction without a repeated offer",
+		(opening) => {
+			const generated = sequence();
+			const first = generated.stages[0];
+			if (!first) throw new Error("Missing initial fixture");
+			first.opening = opening;
+			expect(
+				groundedSequence(generated, DEFAULT_TEMPLATES, evidence)[0]?.opening,
+			).toBe(opening);
+		},
+	);
+
 	test("preserves natural copy and fixed identity across the entire sequence", () => {
 		const generated = sequence();
 		const drafts = groundedSequence(generated, DEFAULT_TEMPLATES, evidence);
@@ -199,6 +215,26 @@ describe("grounded personalised sequence", () => {
 	});
 
 	for (const stageIndex of [0, 1, 2]) {
+		for (const field of ["opening", "question"] as const)
+			for (const [variant, duplicate] of [
+				"I came across Example Logistics and noted that you provide all modes of road transport service. I’m Danny from Sapience Analytics. We help businesses set up and use Geotab, with local support and reporting that fits their operations.",
+				"WE HELP businesses set up and use Geotab; with local support and reporting that fits their operations?",
+				"My name is Danny and I would like to discuss your fleet needs?",
+				"Sapience Analytics helps businesses set up and use Geotab with local support and reporting that fits their operations.",
+				"I help businesses set up and use Geotab with local support and reporting that fits their operations.",
+			].entries())
+				test(`rejects repeated fixed copy in stage ${stageIndex} ${field}, variant ${variant}`, () => {
+					const generated = sequence();
+					const stage = generated.stages[stageIndex];
+					if (!stage) throw new Error("Missing stage fixture");
+					stage[field] = duplicate;
+					const message = validationMessage(generated);
+					expect(message).toBe(
+						`Stage ${stageIndex}: AI draft repeats the fixed sender introduction or Geotab offer.`,
+					);
+					expect(message).not.toContain(duplicate);
+				});
+
 		for (const invalid of [
 			{
 				field: "opening",
