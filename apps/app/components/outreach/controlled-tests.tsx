@@ -283,7 +283,11 @@ function TestResult({ test }: { test: LaunchTest }) {
 						<pre className="whitespace-pre-wrap">{test.body}</pre>
 						<p>Test: {test.id}</p>
 						<p>Batch: {test.batchId}</p>
-						<p>Message-ID: {test.rfcMessageId}</p>
+						<p>Planned Message-ID: {test.rfcMessageId}</p>
+						<p>
+							Delivered Message-ID:{" "}
+							{test.observedRfcMessageId ?? "Not verified"}
+						</p>
 						<p>Gmail message: {test.gmailMessageId ?? "Not confirmed"}</p>
 						<p>Gmail thread: {test.gmailThreadId ?? "Not confirmed"}</p>
 					</details>

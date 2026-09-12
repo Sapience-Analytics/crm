@@ -45,6 +45,7 @@ export const launchTestsOutput = z.object({
 			body: z.string(),
 			status: z.string(),
 			rfcMessageId: z.string(),
+			observedRfcMessageId: z.string().nullable(),
 			gmailMessageId: z.string().nullable(),
 			gmailThreadId: z.string().nullable(),
 			loggedAt: z.string().nullable(),
@@ -75,8 +76,10 @@ export function recipientHeaderEvidence(
 		/\r?\n[ \t]+/g,
 		" ",
 	);
-	const messageId = unfolded.match(/^message-id:\s*<([^>]+)>/im)?.[1];
-	if (messageId !== rfcMessageId)
+	const messageId = unfolded
+		.match(/^message-id:\s*<([^>]+)>/im)?.[1]
+		?.toLowerCase();
+	if (messageId !== rfcMessageId.toLowerCase())
 		throw new Error("Recipient headers must match this test Message-ID.");
 	const from = unfolded.match(/^from:\s*(.+)$/im)?.[1]?.toLowerCase() ?? "";
 	const recipients = [...unfolded.matchAll(/^(?:delivered-to|to):\s*(.+)$/gim)]

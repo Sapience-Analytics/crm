@@ -26,6 +26,7 @@ import { MailboxTokenService } from "../mailbox/mailbox-token.service";
 import { ThreadWriterService } from "../mailbox/thread-writer.service";
 import { campaignHash } from "./outreach.service";
 import { OutreachGmail } from "./outreach-gmail";
+import { verifiedSentIdentity } from "./outreach-identity";
 import {
 	classifyOutreachMessage,
 	storeOutreachMessage,
@@ -277,12 +278,21 @@ export class OutreachDispatchService {
 		)
 			return;
 		if (!(await this.inspect(campaign, prospect, token))) return;
-		const prior = await this.db.outreachDelivery.findUnique({
+		let prior = await this.db.outreachDelivery.findUnique({
 			where: { prospectId_stage: { prospectId: prospect.id, stage: 0 } },
 		});
+		if (prospect.nextStage > 0 && prior) {
+			await this.log(campaign, prior.id, token);
+			prior = await this.db.outreachDelivery.findUniqueOrThrow({
+				where: { id: prior.id },
+			});
+		}
 		if (
 			prospect.nextStage > 0 &&
-			(!prior?.gmailThreadId || !prospect.initialSentAt)
+			(!prior?.gmailThreadId ||
+				!prior.observedRfcMessageId ||
+				!prior.loggedAt ||
+				!prospect.initialSentAt)
 		)
 			throw new Error("Initial delivery is not reconciled.");
 		const templates = templatesSchema.parse(campaign.templates);
@@ -334,6 +344,7 @@ export class OutreachDispatchService {
 			return tx.outreachDelivery.create({
 				data: {
 					prospectId: prospect.id,
+					createdAt: now,
 					stage: prospect.nextStage,
 					rfcMessageId: `${randomUUID()}@sapienceanalytics.com.au`,
 					subject: content.subject,
@@ -349,7 +360,7 @@ export class OutreachDispatchService {
 				to: prospect.email,
 				from: campaign.senderEmail,
 				rfcId: delivery.rfcMessageId,
-				rootId: prior?.rfcMessageId,
+				rootId: prior?.observedRfcMessageId ?? undefined,
 				threadId: prior?.gmailThreadId ?? undefined,
 			});
 			await this.finish(delivery, sent.id, sent.threadId, new Date());
@@ -373,8 +384,14 @@ export class OutreachDispatchService {
 		sentAt: Date,
 	) {
 		await this.db.$transaction(async (tx) => {
-			await tx.outreachDelivery.update({
-				where: { id: delivery.id },
+			await tx.outreachDelivery.updateMany({
+				where: {
+					id: delivery.id,
+					OR: [
+						{ gmailMessageId: null, gmailThreadId: null },
+						{ gmailMessageId, gmailThreadId },
+					],
+				},
 				data: {
 					status: "SENT",
 					gmailMessageId,
@@ -383,6 +400,16 @@ export class OutreachDispatchService {
 					lastError: null,
 				},
 			});
+			const bound = await tx.outreachDelivery.findUniqueOrThrow({
+				where: { id: delivery.id },
+			});
+			if (
+				bound.gmailMessageId !== gmailMessageId ||
+				bound.gmailThreadId !== gmailThreadId
+			)
+				throw new Error(
+					"Delivery Gmail identity conflicts with its durable record.",
+				);
 			const prospect = await tx.outreachProspect.findUniqueOrThrow({
 				where: { id: delivery.prospectId },
 			});
@@ -417,12 +444,13 @@ export class OutreachDispatchService {
 						createdAt: { lt: new Date(Date.now() - OUTREACH.leaseMs) },
 					},
 					{ status: "SENT", loggedAt: null },
+					{ status: "SENT", observedRfcMessageId: null },
 				],
 			},
 			take: 5,
 		});
 		for (const row of rows) {
-			if (row.status !== "SENT") {
+			if (!row.gmailMessageId) {
 				const result = await this.gmail.search(
 					token,
 					`in:sent rfc822msgid:${row.rfcMessageId}`,
@@ -440,10 +468,25 @@ export class OutreachDispatchService {
 					continue;
 				}
 				const message = await this.gmail.message(token, found.id);
-				const sentAt = new Date(Number(message.internalDate));
-				if (!Number.isFinite(sentAt.getTime()))
-					throw new Error("Sent message timestamp is unavailable.");
-				await this.finish(row, found.id, found.threadId, sentAt);
+				const parsed = this.parser.parse(message);
+				const prospect = await this.db.outreachProspect.findUniqueOrThrow({
+					where: { id: row.prospectId },
+				});
+				if (!parsed || !prospect.email)
+					throw new Error("Sent email cannot be reconciled.");
+				verifiedSentIdentity(
+					message,
+					parsed,
+					{
+						...row,
+						gmailMessageId: found.id,
+						gmailThreadId: found.threadId,
+						sender: campaign.senderEmail,
+						recipient: prospect.email,
+					},
+					true,
+				);
+				await this.finish(row, found.id, found.threadId, parsed.sentAt);
 			}
 			await this.log(campaign, row.id, token);
 		}
@@ -457,11 +500,50 @@ export class OutreachDispatchService {
 		const delivery = await this.db.outreachDelivery.findUniqueOrThrow({
 			where: { id: deliveryId },
 		});
-		if (!delivery.gmailMessageId || delivery.loggedAt) return;
+		if (!delivery.gmailMessageId || !delivery.gmailThreadId)
+			throw new Error("Delivery has no complete Gmail identity.");
 		const message = await this.gmail.message(token, delivery.gmailMessageId);
 		const parsed = this.parser.parse(message);
 		if (!parsed)
 			throw new Error("Sent email could not be parsed for CRM logging.");
+		const prospect = await this.db.outreachProspect.findUniqueOrThrow({
+			where: { id: delivery.prospectId },
+		});
+		if (!prospect.email)
+			throw new Error("Sent email has no durable recipient.");
+		const observedRfcMessageId = verifiedSentIdentity(message, parsed, {
+			...delivery,
+			sender: campaign.senderEmail,
+			recipient: prospect.email,
+		});
+		await this.db.outreachDelivery.updateMany({
+			where: {
+				id: delivery.id,
+				observedRfcMessageId: null,
+				gmailMessageId: delivery.gmailMessageId,
+				gmailThreadId: delivery.gmailThreadId,
+			},
+			data: { observedRfcMessageId },
+		});
+		const bound = await this.db.outreachDelivery.findUniqueOrThrow({
+			where: { id: delivery.id },
+		});
+		if (
+			bound.observedRfcMessageId !== observedRfcMessageId ||
+			bound.gmailMessageId !== delivery.gmailMessageId ||
+			bound.gmailThreadId !== delivery.gmailThreadId
+		)
+			throw new Error(
+				"Delivery identity binding conflicts with its durable record.",
+			);
+		if (delivery.status !== "SENT")
+			await this.finish(
+				bound,
+				delivery.gmailMessageId,
+				delivery.gmailThreadId,
+				parsed.sentAt,
+			);
+		if (delivery.loggedAt) return;
 		const mailbox = await this.db.mailboxSync.findUniqueOrThrow({
 			where: { userId_source: { userId: campaign.ownerId, source: "gmail" } },
 		});
