@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.0](https://github.com/Sapience-Analytics/crm/compare/v1.16.0...v1.17.0) (2026-09-12)
+
+
+### Features
+
+* **outreach:** add controlled Gmail launch checks and reliable logging ([d9b9656](https://github.com/Sapience-Analytics/crm/commit/d9b9656228a3ffbb8aac802174e53104a2930244))
+
 ## [1.16.0](https://github.com/Sapience-Analytics/crm/compare/v1.15.3...v1.16.0) (2026-09-11)
 
 

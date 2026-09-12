@@ -444,6 +444,35 @@ model OutreachReport {
   @@map("outreachReport")
 }
 
+model OutreachLaunchTest {
+  id String @id @default(cuid())
+  batchId String
+  kind String
+  ownerId String
+  recipientEmail String
+  contactId String
+  subject String
+  body String
+  status String @default("SENDING")
+  rfcMessageId String @unique
+  gmailMessageId String?
+  gmailThreadId String?
+  sentAt DateTime?
+  loggedAt DateTime?
+  responseMessageId String?
+  responseStatus String?
+  responseAt DateTime?
+  responseLoggedAt DateTime?
+  recipientAuth Json?
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, kind])
+  @@index([ownerId, createdAt])
+  @@map("outreachLaunchTest")
+}
+
 model CompanyEnrichment {
   companyId String   @id
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

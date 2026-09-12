@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { GeotabCampaign } from "@/components/outreach/geotab-campaign";
 import {
 	PageShell,
 	PageShellContent,
 	PageShellHeader,
 	PageShellHeading,
+	PageShellLoading,
 	PageShellTitle,
 } from "@/components/page-shell";
 
@@ -19,7 +21,9 @@ export default function GeotabPage() {
 				</PageShellHeading>
 			</PageShellHeader>
 			<PageShellContent>
-				<GeotabCampaign />
+				<Suspense fallback={<PageShellLoading />}>
+					<GeotabCampaign />
+				</Suspense>
 			</PageShellContent>
 		</PageShell>
 	);

@@ -27,6 +27,7 @@ import { fieldListInput, fieldListOutput, fieldByKeyInput, serializedFieldOutput
 import { googleConnectionStatusOutput, gmailImportOutput, setAutoCreateInput, suppressDomainInput, suppressDomainOutput, threadInput, emailThreadOutput, calendarEventInput, calendarEventOutput } from "../google/google.contracts";
 import { purgeSyncedDataOutput, revokeAccessOutput, microsoftConnectionStatusOutput, setOutlookAutoCreateInput } from "../microsoft/microsoft.contracts";
 import { outreachStatusOutput, outreachPageInput, outreachProspectsOutput, outreachResult, campaignUpdateInput, campaignActionInput, campaignReadinessInput, prospectApproveInput, prospectStopInput } from "../outreach/outreach.contracts";
+import { launchTestsOutput, startLaunchTestsInput, launchTestIdInput, launchTestHeadersInput } from "@crm/validation/outreach-tests";
 import { savedViewListInput, savedViewListOutput, savedViewCreateInput, savedViewOutput, savedViewUpdateArgs, savedViewIdInput, savedViewDeleteOutput } from "../saved-views/saved-views.contracts";
 import { agentModelOutput, modelCatalogOutput, setAgentModelInput, researchKeyOutput, setResearchKeyInput, archiveRetentionOutput, setArchiveRetentionDaysInput } from "../settings/settings.contracts";
 import { slackStatusOutput, slackMatchesOutput, slackChannelsInput, slackChannelsOutput, slackJoinChannelInput, slackJoinChannelOutput, slackRefreshPeopleOutput, slackCreateChannelInput, slackCreateChannelOutput, slackDisconnectOutput } from "../slack/slack.contracts";
@@ -618,6 +619,21 @@ const appRouter = t.router({
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
     stop: publicProcedure
       .input(prospectStopInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    launchTests: publicProcedure
+      .output(launchTestsOutput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    startLaunchTests: publicProcedure
+      .input(startLaunchTestsInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    checkLaunchTest: publicProcedure
+      .input(launchTestIdInput)
+      .output(outreachResult)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any),
+    recordLaunchTestHeaders: publicProcedure
+      .input(launchTestHeadersInput)
       .output(outreachResult)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as any)
     }),
