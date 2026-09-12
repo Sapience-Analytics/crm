@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.1](https://github.com/Sapience-Analytics/crm/compare/v1.19.0...v1.19.1) (2026-09-12)
+
+
+### Fixes
+
+* **agent:** clarify outreach attribution and contact research outcomes ([6a5bc98](https://github.com/Sapience-Analytics/crm/commit/6a5bc987cf9a88a0c9d7deca1906cd2d1884324d))
+
 ## [1.19.0](https://github.com/Sapience-Analytics/crm/compare/v1.18.6...v1.19.0) (2026-09-12)
 
 
