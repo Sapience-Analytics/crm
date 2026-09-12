@@ -19,7 +19,10 @@ const wireSchema = z.object({
 		]),
 	),
 	providerOptions: z.object({
-		gateway: z.object({ only: z.array(z.string()) }),
+		gateway: z.object({
+			only: z.array(z.string()),
+			allowFallbackFromFast: z.boolean().optional(),
+		}),
 		openai: z.object({ serviceTier: z.string(), reasoningEffort: z.string() }),
 	}),
 });
@@ -53,7 +56,13 @@ for (const phase of ["generation", "review", "reply"] as const)
 						},
 						outputTokens: { total: 10, text: 10, reasoning: 0 },
 					},
-					providerMetadata: { gateway: { cost: "0.001" } },
+					providerMetadata: {
+						gateway: {
+							cost: "0.001",
+							routing: { speed: "fast" },
+							serviceTier: "priority",
+						},
+					},
 				});
 			},
 		});
@@ -63,16 +72,23 @@ for (const phase of ["generation", "review", "reply"] as const)
 			prompt,
 			maxOutputTokens: 3000,
 		});
-		expect(result).toEqual({
+		const expectedResult = {
 			text: "synthetic result",
 			finishReason: "stop",
 			costMicroUsd: 1000,
-		});
+		};
+		expect(result).toEqual(
+			phase === "review"
+				? { ...expectedResult, reviewRouteVerified: true }
+				: expectedResult,
+		);
 		expect(requests).toHaveLength(1);
 		const request = requests[0];
 		expect(request.method).toBe("POST");
 		expect(new URL(request.url).pathname).toBe("/v4/ai/language-model");
-		expect(request.headers.get("ai-language-model-id")).toBe(DRAFTING.model);
+		expect(request.headers.get("ai-language-model-id")).toBe(
+			phase === "review" ? DRAFTING.reviewModel : DRAFTING.model,
+		);
 		const body = wireSchema.parse(await request.json());
 		expect(body.prompt).toEqual([
 			{ role: "system", content: instructions },
@@ -80,8 +96,14 @@ for (const phase of ["generation", "review", "reply"] as const)
 		]);
 		expect(body.maxOutputTokens).toBe(3000);
 		expect(body.providerOptions).toEqual({
-			gateway: { only: ["openai"] },
-			openai: { serviceTier: "default", reasoningEffort: "low" },
+			gateway:
+				phase === "review"
+					? { only: ["openai"], allowFallbackFromFast: false }
+					: { only: ["openai"] },
+			openai: {
+				serviceTier: phase === "review" ? "priority" : "default",
+				reasoningEffort: "low",
+			},
 		});
 	});
 
@@ -160,11 +182,13 @@ for (const fixture of [
 		);
 		expect(requests).toHaveLength(1);
 		const request = requests[0];
-		expect(request.headers.get("ai-language-model-id")).toBe(DRAFTING.model);
+		expect(request.headers.get("ai-language-model-id")).toBe(
+			DRAFTING.reviewModel,
+		);
 		const body = wireSchema.parse(await request.json());
 		expect(body.maxOutputTokens).toBe(DRAFTING.reviewOutputTokens);
 		expect(body.providerOptions).toEqual({
-			gateway: { only: ["openai"] },
-			openai: { serviceTier: "default", reasoningEffort: "low" },
+			gateway: { only: ["openai"], allowFallbackFromFast: false },
+			openai: { serviceTier: "priority", reasoningEffort: "low" },
 		});
 	});
