@@ -12,15 +12,22 @@ export const catalogSchema = z.object({
 	data: z.array(
 		z.object({
 			id: z.string(),
-			pricing: z
-				.object({
-					input: z.coerce.number().nonnegative(),
-					output: z.coerce.number().nonnegative().optional(),
-					varies_by_provider: z.boolean().optional(),
-				})
-				.optional(),
+			pricing: z.json().optional(),
 		}),
 	),
+});
+const tokenPrice = z.union([
+	z.number().nonnegative(),
+	z
+		.string()
+		.regex(/^\d+(?:\.\d+)?$/)
+		.transform(Number)
+		.pipe(z.number().nonnegative()),
+]);
+const textPriceSchema = z.object({
+	input: tokenPrice,
+	output: tokenPrice,
+	varies_by_provider: z.boolean().optional(),
 });
 const costSchema = z.object({
 	gateway: z.object({
@@ -34,6 +41,17 @@ const costSchema = z.object({
 	}),
 });
 export class OutreachAiError extends Error {}
+
+export function catalogPrice(catalog: z.infer<typeof catalogSchema>) {
+	const matches = catalog.data.filter((model) => model.id === DRAFTING.model);
+	const price = textPriceSchema.safeParse(matches[0]?.pricing);
+	if (matches.length !== 1 || !price.success || price.data.varies_by_provider)
+		throw new OutreachAiError(
+			"Selected AI model token pricing is unavailable or ambiguous. Drafts stay on hold.",
+		);
+	return price.data;
+}
+
 type TextRequest = {
 	instructions: string;
 	prompt: string;
@@ -94,24 +112,23 @@ export async function outreachAiText(request: TextRequest) {
 		const response = await fetch("https://ai-gateway.vercel.sh/v1/models", {
 			signal: AbortSignal.timeout(OUTREACH.timeoutMs),
 		});
-		if (!response.ok) throw new Error("price");
+		if (!response.ok)
+			throw new OutreachAiError(
+				`AI model catalog returned HTTP ${response.status}. Drafts stay on hold.`,
+			);
 		catalog = catalogSchema.parse(await response.json());
-	} catch {
+	} catch (error) {
+		if (error instanceof OutreachAiError) throw error;
 		throw new OutreachAiError(
 			"AI model pricing is unavailable. Drafts stay on hold.",
 		);
 	}
-	const price = catalog.data.find(
-		(model) => model.id === DRAFTING.model,
-	)?.pricing;
+	const price = catalogPrice(catalog);
 	if (
-		!price ||
-		price.output === undefined ||
-		price.varies_by_provider ||
 		(price.input * (inputBytes + DRAFTING.inputOverheadTokens) +
 			price.output * request.maxOutputTokens) *
 			1_000_000 >
-			OUTREACH.aiReserveMicroUsd
+		OUTREACH.aiReserveMicroUsd
 	)
 		throw new OutreachAiError(
 			"AI model price cannot fit the reserved drafting allowance.",
