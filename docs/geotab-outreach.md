@@ -145,13 +145,29 @@ Current contracts: [Agent API](https://docs.perplexity.ai/api-reference/agent-po
 [search limits](https://docs.perplexity.ai/docs/agent-api/tools/web-search) and
 [tool prices](https://docs.perplexity.ai/docs/getting-started/pricing).
 Sequence generation, grounding reviews and reply drafts share the same US$10 monthly `ai:YYYY-MM` ledger.
-Each request reserves US$0.10 before calling GPT-5.4 mini through AI Gateway, with only the OpenAI provider and no fallback.
+Each request reserves US$0.10 before calling AI Gateway, with only the OpenAI provider and no fallback.
+Generation and reply drafting use GPT-5.4 mini. The review trial uses the free-tier-eligible `openai/gpt-5.4-mini-fast` alias.
+Review requests pin priority processing and disable fallback from fast processing. This trial makes no credit purchase or subscription change.
+The current fast catalog price must remain US$1.50/million input tokens and US$9/million output tokens. Any price change holds drafting.
+The maximum estimated review cost is US$0.0585, including 21,000 input tokens and 3,000 output tokens, below the existing reserve.
 Current published model pricing must fit the reservation before dispatch. Inputs are bounded to 20,000 UTF-8 bytes plus estimated overhead.
 Output caps are 3,000 tokens for three drafts, 3,000 for grounding review and 700 for a reply draft.
 Actual Gateway costs settle reservations. Missing usage retains the full reservation; observed overruns pause further CRM drafting for review.
 The UI distinguishes confirmed costs from charged or reserved amounts. Provider errors use fixed safe messages.
 Requests use bounded output and no automatic AI retries. Reaching an allowance stops new paid work.
 These application ledgers do not change provider subscriptions or enable paid upgrades.
+
+Fast reviews require actual response metadata showing `gateway.routing.speed: fast` and `gateway.serviceTier: priority`.
+The requested model and tier alone are not proof. Missing or different metadata holds the drafts after settling any known cost.
+The bounded `outreach.fast_review_verified` log reports model, served speed, served tier and cost, without copy or credentials.
+New artifacts append `reviewModel`; old artifacts keep that field absent and retain their exact approval hashes.
+Deploy the compatible API before the trial agent. No database migration is required. Keep campaign sending paused during the trial.
+Use normal owner-requested drafts for the live trial. Do not treat a successful request as evidence of resolved rate limits.
+The stable v1.19.3 agent deployment is `dpl_HM9u6rX818LEZQ9LYDWTHWwwaDtg` at release `9a9d43f5a0811e888e0f8c7243cdb760b02cd49c`.
+An agent rollback keeps the compatible API in place, so saved review provenance remains readable.
+See the official [fast-mode contract](https://vercel.com/docs/ai-gateway/models-and-providers/fast-mode),
+[service-tier proof](https://vercel.com/docs/ai-gateway/models-and-providers/service-tiers) and
+[mini-fast catalog](https://vercel.com/ai-gateway/models/gpt-5.4-mini-fast).
 
 ## Verification
 

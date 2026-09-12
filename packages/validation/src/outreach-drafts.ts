@@ -46,6 +46,10 @@ export const PERSONALISATION = {
 
 export const DRAFTING = {
 	model: OUTREACH.replyModel,
+	reviewModel: "openai/gpt-5.4-mini-fast",
+	reviewExpectedInputPrice: 0.0000015,
+	reviewExpectedOutputPrice: 0.000009,
+	reviewServiceTier: "priority",
 	maxOutputTokens: 3000,
 	reviewOutputTokens: 3000,
 	replyOutputTokens: 700,
@@ -113,6 +117,7 @@ export const draftArtifactSchema = z.object({
 		.array(persistedStageSchema)
 		.length(3)
 		.refine((stages) => stages.every((stage, index) => stage.stage === index)),
+	reviewModel: z.enum([DRAFTING.model, DRAFTING.reviewModel]).optional(),
 });
 export const draftViewSchema = z.object({
 	status: z.string(),
