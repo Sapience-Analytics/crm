@@ -53,6 +53,7 @@ export function catalogPrice(catalog: z.infer<typeof catalogSchema>) {
 }
 
 type TextRequest = {
+	phase: "generation" | "review" | "reply";
 	instructions: string;
 	prompt: string;
 	maxOutputTokens: number;
@@ -163,9 +164,12 @@ export async function outreachAiText(request: TextRequest) {
 			throw new OutreachAiError(reason);
 		}
 	}
-	if (result.finishReason !== "stop")
+	const finishReason = z
+		.enum(["stop", "length", "content-filter", "tool-calls", "error", "other"])
+		.safeParse(result.finishReason);
+	if (!finishReason.success || finishReason.data !== "stop")
 		throw new OutreachAiError(
-			"AI output did not finish normally or reached its output limit. Drafts stay held.",
+			`AI ${request.phase} output did not finish normally (${finishReason.success ? finishReason.data : "unrecognized"}). Drafts stay held.`,
 		);
 	return result.text;
 }

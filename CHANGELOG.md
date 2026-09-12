@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.3](https://github.com/Sapience-Analytics/crm/compare/v1.18.2...v1.18.3) (2026-09-12)
+
+
+### Fixes
+
+* **outreach:** budget enough output for grounding review ([#26](https://github.com/Sapience-Analytics/crm/issues/26)) ([3d8b77f](https://github.com/Sapience-Analytics/crm/commit/3d8b77f2feccf5fef8e3533288f1252bbe66364f))
+
 ## [1.18.2](https://github.com/Sapience-Analytics/crm/compare/v1.18.1...v1.18.2) (2026-09-12)
 
 
