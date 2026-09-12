@@ -238,6 +238,18 @@ test("generation separates verified recipient, selected contact and approved pro
 			expect(input.departmentQuestions).toBeNull();
 			expect(input.generatedSlots).toHaveLength(4);
 			expect(input.stageIntents).toHaveLength(3);
+			expect(input.stageIntents[1]).toContain(
+				"literal phrase trip reports, trip history or maintenance reminders",
+			);
+			expect(request.instructions).toContain(
+				"Attribute company operational facts explicitly to the company by its supplied name",
+			);
+			expect(request.instructions).toContain(
+				"Never turn a company fact into personal control, ownership or companywide responsibility",
+			);
+			expect(request.instructions).toContain(
+				"Never claim prior contact or use phrases such as you shared, you mentioned",
+			);
 			expect(request.instructions).toContain(
 				"Product capabilities come only from approvedProductCapabilities",
 			);
@@ -250,6 +262,18 @@ test("generation separates verified recipient, selected contact and approved pro
 			expect(input.stages[1].body).toContain("Geotab trip reports");
 			expect(request.instructions).toContain(
 				"A product capability does not require matching recipient-source text",
+			);
+			expect(request.instructions).toContain(
+				"Company operational facts must explicitly name the company",
+			);
+			expect(request.instructions).toContain(
+				"A published job title alone cannot support companywide authority; reject that attribution",
+			);
+			expect(request.instructions).toContain(
+				"Reject any claimed conversation or phrases such as you shared, you mentioned",
+			);
+			expect(request.instructions).toContain(
+				"uses an explicit capability phrase such as trip reports, trip history or maintenance reminders",
 			);
 		}
 		return {

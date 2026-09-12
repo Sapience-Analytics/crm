@@ -289,9 +289,14 @@ async function runCandidate(id: string) {
 			candidates = result.candidates;
 		}
 		const verified: VerifiedContactCandidate[] = [];
+		let unavailableSources = 0;
+		let rejectedAssociations = 0;
 		for (const candidate of candidates) {
 			const source = await readSource(candidate.sourceUrl);
-			if (!source) continue;
+			if (!source) {
+				unavailableSources += 1;
+				continue;
+			}
 			const result = verifyContactCandidate(
 				candidate,
 				row.domain,
@@ -299,6 +304,7 @@ async function runCandidate(id: string) {
 				source.text,
 				source.url,
 			);
+			if (!result) rejectedAssociations += 1;
 			if (result && !verified.some((item) => item.id === result.id))
 				verified.push(result);
 		}
@@ -350,7 +356,7 @@ async function runCandidate(id: string) {
 					dueAt: null,
 					error: verified.length
 						? null
-						: "No current official contact association passed verification. Existing contact remains unchanged.",
+						: `Candidates from ${job.submittedCandidates ? "owner input" : "research provider"}: ${candidates.length}. Sources unavailable: ${unavailableSources}. Associations rejected: ${rejectedAssociations}. No current official contact association passed verification. Existing contact remains unchanged.`,
 				},
 			});
 		});
