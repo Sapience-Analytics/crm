@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.0](https://github.com/Sapience-Analytics/crm/compare/v1.17.3...v1.18.0) (2026-09-12)
+
+
+### Features
+
+* **outreach:** prepare grounded AI sequences and verified pilot intake ([#17](https://github.com/Sapience-Analytics/crm/issues/17)) ([6a58586](https://github.com/Sapience-Analytics/crm/commit/6a58586ca05245cea52a257ec79f7a2c3008e770))
+
 ## [1.17.3](https://github.com/Sapience-Analytics/crm/compare/v1.17.2...v1.17.3) (2026-09-12)
 
 
