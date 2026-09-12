@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.2](https://github.com/Sapience-Analytics/crm/compare/v1.18.1...v1.18.2) (2026-09-12)
+
+
+### Fixes
+
+* **outreach:** clarify draft context and expose safe hold reasons ([#23](https://github.com/Sapience-Analytics/crm/issues/23)) ([11e28b6](https://github.com/Sapience-Analytics/crm/commit/11e28b6412391cb6f25854c796e862ba06573392))
+
 ## [1.18.1](https://github.com/Sapience-Analytics/crm/compare/v1.18.0...v1.18.1) (2026-09-12)
 
 
