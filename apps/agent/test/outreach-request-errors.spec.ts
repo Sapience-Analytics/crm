@@ -35,7 +35,7 @@ for (const phase of ["generation", "review", "reply"] as const)
 					(error) => error.message,
 				);
 			expect(message).toBe(
-				`AI ${phase} request failed (HTTP ${statusCode}). Its reservation remains charged; no immediate retry occurs.`,
+				`AI ${phase} request failed (HTTP ${statusCode}${statusCode === 429 ? "; code=unavailable; retry-after=unavailable" : ""}). Its reservation remains charged; no immediate retry occurs.`,
 			);
 		});
 
@@ -110,4 +110,102 @@ test("the actual request timeout signal identifies an opaque SDK failure", async
 	} finally {
 		timeout.mockRestore();
 	}
+});
+
+for (const retryAfter of ["0", "120", " 3600 "])
+	test(`429 diagnostics permit bounded Retry-After ${retryAfter.trim()}`, async () => {
+		generate.mockRejectedValue(
+			Object.assign(new Error(privateText), {
+				lastError: {
+					statusCode: 429,
+					type: "internal_server_error",
+					cause: {
+						statusCode: 429,
+						data: {
+							error: { code: "insufficient_quota", message: privateText },
+						},
+						responseHeaders: {
+							"retry-after": retryAfter,
+							authorization: privateText,
+						},
+					},
+				},
+			}),
+		);
+		const message = await gatewayText
+			.generate({
+				phase: "review",
+				instructions: "Test only",
+				prompt: "Test only",
+				maxOutputTokens: 10,
+			})
+			.then(
+				() => "unexpected success",
+				(error) => error.message,
+			);
+		expect(message).toBe(
+			`AI review request failed (HTTP 429; code=insufficient_quota; retry-after=${Number(retryAfter)}s). Its reservation remains charged; no immediate retry occurs.`,
+		);
+		expect(generate).toHaveBeenCalledTimes(1);
+	});
+
+for (const retryAfter of [
+	"-1",
+	"1.5",
+	"Wed, 21 Oct 2015 07:28:00 GMT",
+	"999999999999999999999",
+	"",
+	"1e3",
+	"3601",
+	privateText,
+])
+	test(`429 diagnostics discard invalid Retry-After fixture ${retryAfter.length}`, async () => {
+		generate.mockRejectedValue({
+			statusCode: 429,
+			data: { error: { code: privateText, type: privateText } },
+			responseHeaders: {
+				"retry-after": retryAfter,
+				authorization: privateText,
+			},
+			responseBody: privateText,
+		});
+		const message = await gatewayText
+			.generate({
+				phase: "generation",
+				instructions: "Test only",
+				prompt: "Test only",
+				maxOutputTokens: 10,
+			})
+			.then(
+				() => "unexpected success",
+				(error) => error.message,
+			);
+		expect(message).toBe(
+			"AI generation request failed (HTTP 429; code=unavailable; retry-after=unavailable). Its reservation remains charged; no immediate retry occurs.",
+		);
+	});
+
+test("429 facts cannot come from a different nested HTTP status", async () => {
+	generate.mockRejectedValue({
+		statusCode: 429,
+		cause: {
+			statusCode: 402,
+			data: { error: { code: "insufficient_quota" } },
+			responseHeaders: { "retry-after": "120" },
+		},
+	});
+	const message = await gatewayText
+		.generate({
+			phase: "review",
+			instructions: "Test only",
+			prompt: "Test only",
+			maxOutputTokens: 10,
+		})
+		.then(
+			() => "unexpected success",
+			(error) => error.message,
+		);
+	expect(message).toBe(
+		"AI review request failed (HTTP 429; code=unavailable; retry-after=unavailable). Its reservation remains charged; no immediate retry occurs.",
+	);
 });
