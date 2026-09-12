@@ -26,6 +26,7 @@
 		"ai": "7.0.47",
 		"context.dev": "2.10.0",
 		"eve": "^0.29.4",
+		"tldts": "6.1.86",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

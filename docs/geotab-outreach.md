@@ -6,7 +6,7 @@ The campaign starts paused. Creating the campaign does not send email or call re
 
 ## Workflow
 
-The agent's existing minute schedule checks research jobs and reply drafts. Research runs at most hourly.
+The agent's minute schedule checks research, source verification, personalised email drafts and reply drafts. Research runs at most hourly.
 The Perplexity Agent API finds up to five prospects per request. The weekly target is 50 new WA companies.
 The worker verifies source quotations, WA location text and published email addresses against the company's website.
 Unverified records stay on hold. Vehicle counts stay unknown during discovery. Plant and employee counts never become vehicle counts.
@@ -21,7 +21,12 @@ Daily limits are 10 initial messages and 30 total messages, weekdays from 10 am 
 Follow-ups fall 4 and 10 weekdays after the initial send. Public holidays are not excluded.
 No third follow-up exists. An overdue message waits for the next sending window and available daily capacity.
 
-Templates use the company name and an exact verified source quote. AI research chooses the relevant fact.
+AI writes natural openings and fleet-needs questions for all three stages using verified source facts.
+Every opening and question includes its own exact supporting source reference. A separate AI review audits grounding and stage intent.
+Deterministic checks reject unsupported numbers, commercial claims, added links, placeholders and missing sender identification or unsubscribe instructions.
+The approved initial Geotab offer and every signature remain fixed. All approved stage templates guide generation and grounding review.
+Three complete messages persist together before any send. The preview and delivery use those exact stored strings.
+The pilot requires Danny's review of all three previews for each prospect. Manual prospects receive copyable drafts and remain excluded from sending.
 Replies pause the sequence. AI creates a proposed reply in CompAI. Danny reviews and sends it himself.
 The worker never sends AI reply drafts. The ordinary Gmail inbox also receives the original reply.
 Weekly reports appear on the campaign page. They do not send a separate report email.
@@ -33,14 +38,22 @@ Weekly reports appear on the campaign page. They do not send a separate report e
 3. Configure the existing `PERPLEXITY_API_KEY` on the agent's Production environment. Never paste the key into chat.
 4. Enable cloud research. Review source and eligibility holds in the campaign page.
 5. Connect Gmail sending from the campaign page. Existing read permissions remain required; sending is an additional grant.
-6. Review the actual templates and rules. Approve their current version once.
+6. Review templates and AI personalisation rules. This policy requires renewed approval; migration pauses sending and clears previous approval.
 7. Record SPF, DKIM, DMARC and controlled delivery, reply-stop, opt-out-stop and CRM logging checks.
-8. Start the pilot after all twelve eligible prospects have their permanent allocations.
+8. Qualify twelve prospects, wait for all three drafts each, and record review of their exact previews before starting the pilot.
 9. Accept the pilot and activate weekly sending after all ten initial deliveries are confirmed and logged.
 
 Research and sending have separate pause controls. Template edits pause sending and revoke approval and launch checks.
 Preview deployments and local processes do not run outreach workers. `VERCEL_ENV=production` is required.
 Missing research credentials appear as a held research status. They never enable an unmetered fallback.
+
+### Owner candidate intake
+
+Use **Import researched candidates** for an owner-reviewed JSON batch containing at most twelve records.
+Provide exact fleet/operation and WA quotations. A separate contact page may supply a published email and role quotation.
+Intake creates held, unverified records. It does not grant consent, allocate pilot slots, overwrite company fields or send email.
+The agent independently verifies the official website and contact evidence. Failed or conflicting sources remain held.
+Qualification remains a separate owner action recording the relevant role, contact basis and absence of restrictions.
 
 ## Safety and recovery
 
@@ -62,6 +75,12 @@ Successful deliveries use the existing ThreadWriterService for CRM logging. Logg
 
 Opt-outs and bounces create permanent campaign suppression rows. Adding a contact back into CompAI does not clear them.
 
+Draft generation uses durable leases and at most two attempts per input version, separated by a day after failure.
+Owner retry is explicit. Unknown-cost calls retain their reservations. Missing, unsafe or incomplete drafts never fall back to templates.
+Template, evidence, consent or recipient changes invalidate drafts and their preview review.
+Changes after initial delivery hold follow-ups. Existing draft and delivery snapshots are preserved for audit.
+Late or concurrent generation cannot commit after its lease expires or inputs change.
+
 ## Spending
 
 The existing Vercel AI Gateway project limit remains US$10 monthly. Context, hosting and storage remain separate.
@@ -81,8 +100,12 @@ Current contracts: [Agent API](https://docs.perplexity.ai/api-reference/agent-po
 [model prices](https://docs.perplexity.ai/docs/agent-api/models),
 [search limits](https://docs.perplexity.ai/docs/agent-api/tools/web-search) and
 [tool prices](https://docs.perplexity.ai/docs/getting-started/pricing).
-Reply drafting uses GPT-5.4 mini, reserves US$0.10 and checks its published price before calling AI Gateway.
-Reply reservations remain conservative charges in the internal ledger. The UI distinguishes confirmed costs from charged or reserved amounts.
+Sequence generation, grounding reviews and reply drafts share the same US$10 monthly `ai:YYYY-MM` ledger.
+Each request reserves US$0.10 before calling GPT-5.4 mini through AI Gateway, with only the OpenAI provider and no fallback.
+Current published model pricing must fit the reservation before dispatch. Inputs are bounded to 20,000 UTF-8 bytes plus estimated overhead.
+Output caps are 3,000 tokens for three drafts, 600 for grounding review and 700 for a reply draft.
+Actual Gateway costs settle reservations. Missing usage retains the full reservation; observed overruns pause further CRM drafting for review.
+The UI distinguishes confirmed costs from charged or reserved amounts. Provider errors use fixed safe messages.
 Requests use bounded output and no automatic AI retries. Reaching an allowance stops new paid work.
 These application ledgers do not change provider subscriptions or enable paid upgrades.
 
@@ -94,6 +117,9 @@ They cover leases, manual exclusions, daily limits, uncertain delivery, reply st
 Source tests reject unsupported quotations, missing emails and unrelated domains.
 Research tests cover Agent output parsing, failed responses, usage accounting, input limits, budget exhaustion and model or price drift.
 Policy tests cover Perth time, follow-up timing, template fields and message-header injection.
+Draft tests cover exact persisted preview/send equality, all-stage atomicity, separate claim references, grounding rejection and pilot preview gates.
+They also cover budget sharing, retained unknown costs, cost overruns, bounded retries, lease restarts and mid-generation input drift.
+Intake tests cover owner access, deduplication, official source verification, contact evidence and held-state isolation.
 
 Controlled live delivery and sender authentication still require verification before launch.
 
@@ -118,4 +144,5 @@ These controls never approve templates, mark launch checks complete or start pro
 
 The controlled contact permits exact email matching for a personal Gmail inbox.
 Ordinary mailbox matching still excludes free-email domains when it creates a thread.
-A prospect using such an address needs logging verification before launch. Failed logging holds reconciliation and never resends.
+Campaign prospects require an exact verified contact/company binding before sending. Logging validates that binding without creating identities.
+Company and recipient mailbox domains both retain suppression protection. Failed logging holds reconciliation and never resends.

@@ -214,7 +214,7 @@ test("discovery holds unverifiable contacts and never stores an unverified fleet
 		status: "HELD",
 		consent: null,
 		pilotSlot: null,
-		companyId: company.id,
+		companyId: null,
 	});
 	expect(saved.evidence).toMatchObject({
 		verified: false,

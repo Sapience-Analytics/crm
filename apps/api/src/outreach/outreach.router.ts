@@ -26,6 +26,7 @@ import {
 	outreachStatusOutput,
 	prospectApproveInput,
 	prospectStopInput,
+	reviewDraftsInput,
 } from "./outreach.contracts";
 import { OutreachService } from "./outreach.service";
 import { OutreachLaunchTestsService } from "./outreach-launch-tests.service";
@@ -91,6 +92,20 @@ export class OutreachRouter {
 	@Query({ output: launchTestsOutput })
 	launchTests(@Ctx() ctx: AuthedTrpcContext) {
 		return this.tests.list(ctx.user.id);
+	}
+	@Mutation({ input: reviewDraftsInput, output: outreachResult })
+	reviewDrafts(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof reviewDraftsInput>,
+	) {
+		return this.service.reviewDrafts(ctx.user.id, input.id, input.hash);
+	}
+	@Mutation({ input: prospectStopInput, output: outreachResult })
+	retryDrafts(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof prospectStopInput>,
+	) {
+		return this.service.retryDrafts(ctx.user.id, input.id);
 	}
 	@Mutation({ input: startLaunchTestsInput, output: outreachResult })
 	startLaunchTests(

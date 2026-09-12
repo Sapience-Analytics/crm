@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { catalogSchema } from "../agent/lib/outreach-replies";
+import { catalogSchema } from "../agent/lib/outreach-ai";
 
 test("reply price catalog accepts embedding models without output pricing", () => {
 	const catalog = catalogSchema.parse({

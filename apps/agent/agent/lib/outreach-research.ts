@@ -11,6 +11,8 @@ import {
 	type ProspectEvidence,
 	weekStart,
 } from "@crm/validation/outreach";
+import { OUTREACH_INTAKE } from "@crm/validation/outreach-intake";
+import { getDomain } from "tldts";
 import {
 	fetchResearch,
 	ResearchProviderError,
@@ -20,8 +22,10 @@ import { scheduleTask } from "./tasks";
 
 function normalize(text: string) {
 	return text
+		.replace(/<!--[\s\S]*?-->/g, " ")
 		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
 		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+		.replace(/<\/?span\b[^>]*>/gi, "")
 		.replace(/<[^>]*>/g, " ")
 		.replace(/&amp;/g, "&")
 		.replace(/&#39;|&apos;/g, "'")
@@ -32,23 +36,85 @@ function normalize(text: string) {
 		.toLowerCase();
 }
 
+function sourceHostMatches(evidence: ProspectEvidence, finalUrl: URL) {
+	const host = finalUrl.hostname.replace(/^www\./, "");
+	const domain = evidence.domain.replace(/^www\./, "");
+	const companyDomain = getDomain(domain, { allowPrivateDomains: true });
+	return (
+		finalUrl.protocol === "https:" &&
+		companyDomain !== null &&
+		companyDomain === domain &&
+		getDomain(host, { allowPrivateDomains: true }) === companyDomain
+	);
+}
+
+export function decodeCloudflareEmail(value: string) {
+	if (
+		value.length < 4 ||
+		value.length > OUTREACH_INTAKE.maxObfuscatedEmailChars ||
+		!/^(?:[a-f0-9]{2})+$/i.test(value)
+	)
+		return null;
+	const bytes = Buffer.from(value, "hex");
+	const key = bytes[0];
+	if (key === undefined) return null;
+	const decoded = Buffer.from(
+		bytes.subarray(1).map((byte) => byte ^ key),
+	).toString("utf8");
+	const email = evidenceSchema.shape.email.safeParse(decoded);
+	return email.success ? email.data : null;
+}
+
+function publishedEmail(text: string, email: string) {
+	const visible = text.replace(
+		/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi,
+		" ",
+	);
+	const addresses =
+		`${visible}\n${normalize(visible)}`
+			.toLowerCase()
+			.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/g) ?? [];
+	const encoded = [
+		...visible.matchAll(/\bdata-cfemail\s*=\s*["']([^"']+)["']/gi),
+		...visible.matchAll(/\/cdn-cgi\/l\/email-protection#([a-f0-9]+)/gi),
+	];
+	return (
+		addresses.some((address) => address === email.toLowerCase()) ||
+		encoded.some(
+			(match) => decodeCloudflareEmail(match[1] ?? "") === email.toLowerCase(),
+		)
+	);
+}
+
 export function verifyProspectSource(
 	evidence: ProspectEvidence,
 	text: string,
 	finalUrl: URL,
+	contactProof?: { text: string; url: URL },
 ): boolean {
-	const host = finalUrl.hostname.replace(/^www\./, "");
-	if (host !== evidence.domain && !host.endsWith(`.${evidence.domain}`))
-		return false;
+	if (!sourceHostMatches(evidence, finalUrl)) return false;
 	const source = normalize(text);
-	return (
-		source.includes(normalize(evidence.sourceQuote)) &&
-		source.includes(normalize(evidence.waQuote)) &&
-		(evidence.email === null || text.toLowerCase().includes(evidence.email))
-	);
+	if (
+		!source.includes(normalize(evidence.sourceQuote)) ||
+		!source.includes(normalize(evidence.waQuote))
+	)
+		return false;
+	if (evidence.contactSourceUrl || evidence.contactRoleQuote)
+		return Boolean(
+			evidence.email &&
+				evidence.contactSourceUrl &&
+				evidence.contactRoleQuote &&
+				contactProof &&
+				sourceHostMatches(evidence, contactProof.url) &&
+				normalize(contactProof.text).includes(
+					normalize(evidence.contactRoleQuote),
+				) &&
+				publishedEmail(contactProof.text, evidence.email),
+		);
+	return evidence.email === null || publishedEmail(text, evidence.email);
 }
 
-async function readSource(url: string) {
+export async function readSource(url: string) {
 	const result = await safeFetch(url);
 	if (!result?.response.ok || !result.response.body) return null;
 	const reader = result.response.body.getReader();
@@ -68,6 +134,111 @@ async function readSource(url: string) {
 	}
 }
 
+export async function checkProspectSources(evidence: ProspectEvidence) {
+	const [source, contact] = await Promise.all([
+		readSource(evidence.sourceUrl),
+		evidence.contactSourceUrl &&
+		evidence.contactSourceUrl !== evidence.sourceUrl
+			? readSource(evidence.contactSourceUrl)
+			: Promise.resolve(null),
+	]);
+	if (!source) return false;
+	return verifyProspectSource(
+		evidence,
+		source.text,
+		source.url,
+		evidence.contactSourceUrl === evidence.sourceUrl
+			? source
+			: (contact ?? undefined),
+	);
+}
+
+export class ProspectBindingError extends Error {
+	constructor() {
+		super(OUTREACH_INTAKE.bindingReason);
+	}
+}
+
+export async function verifiedProspectBinding(
+	tx: Prisma.TransactionClient,
+	evidence: ProspectEvidence,
+	ownerId: string,
+) {
+	if (!evidence.verified) return { company: null, contact: null };
+	await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`outreach-company:${evidence.domain}`}))`;
+	await tx.$queryRaw`SELECT id FROM "company" WHERE lower(domain) = ${evidence.domain} FOR UPDATE`;
+	const companies = await tx.company.findMany({
+		where: { domain: { equals: evidence.domain, mode: "insensitive" } },
+	});
+	let company = companies[0];
+	if (
+		companies.length > 1 ||
+		(company && (company.archivedAt || company.ownerId !== ownerId))
+	)
+		throw new ProspectBindingError();
+	if (evidence.email) {
+		await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`outreach-contact:${evidence.email}`}))`;
+		if (
+			(await tx.outreachSuppression.findFirst({
+				where: { email: { equals: evidence.email, mode: "insensitive" } },
+			})) ||
+			(await tx.suppressedContact.findFirst({
+				where: { email: { equals: evidence.email, mode: "insensitive" } },
+			}))
+		)
+			throw new ProspectBindingError();
+	}
+	if (
+		await tx.suppressedDomain.findFirst({
+			where: {
+				domain: {
+					in: [
+						evidence.domain,
+						evidence.email?.split("@")[1] ?? evidence.domain,
+					],
+					mode: "insensitive",
+				},
+			},
+		})
+	)
+		throw new ProspectBindingError();
+	if (!company)
+		company = await tx.company.create({
+			data: {
+				name: evidence.company,
+				domain: evidence.domain,
+				website: `https://${evidence.domain}`,
+				ownerId,
+			},
+		});
+	if (!evidence.email) return { company, contact: null };
+	await tx.$queryRaw`SELECT id FROM "contact" WHERE lower(email) = ${evidence.email} FOR UPDATE`;
+	const contacts = await tx.contact.findMany({
+		where: { email: { equals: evidence.email, mode: "insensitive" } },
+	});
+	let contact = contacts[0];
+	if (
+		contacts.length > 1 ||
+		(contact &&
+			(contact.archivedAt ||
+				contact.ownerId !== ownerId ||
+				contact.companyId !== company.id))
+	)
+		throw new ProspectBindingError();
+	if (!contact)
+		contact = await tx.contact.create({
+			data: {
+				firstName: evidence.email,
+				email: evidence.email,
+				companyId: company.id,
+				ownerId,
+				source: "IMPORT",
+				enrichmentStatus: "SKIPPED",
+			},
+		});
+	return { company, contact };
+}
+
 async function saveProspect(evidence: ProspectEvidence, ownerId: string) {
 	const row = await db.$transaction(async (tx) => {
 		if (
@@ -81,24 +252,18 @@ async function saveProspect(evidence: ProspectEvidence, ownerId: string) {
 			})
 		)
 			return null;
-		let company = await tx.company.findFirst({
-			where: { domain: evidence.domain, archivedAt: null },
-		});
-		if (!company && evidence.verified)
-			company = await tx.company.create({
-				data: {
-					name: evidence.company,
-					domain: evidence.domain,
-					website: `https://${evidence.domain}`,
-					ownerId,
-				},
-			});
+		const { company, contact } = await verifiedProspectBinding(
+			tx,
+			evidence,
+			ownerId,
+		);
 		return tx.outreachProspect.create({
 			data: {
 				campaignId: OUTREACH.id,
 				domain: evidence.domain,
 				email: evidence.email,
 				companyId: company?.id,
+				contactId: contact?.id,
 				evidence,
 				stopReason: evidence.verified
 					? "Contact eligibility needs evidence"
@@ -198,7 +363,6 @@ export async function runOutreachResearch() {
 				where: { id: campaign.id },
 			});
 			if (current.researchLease !== lease || !current.researchEnabled) break;
-			const source = await readSource(candidate.sourceUrl);
 			const evidence = evidenceSchema.parse({
 				...candidate,
 				fleetBand: "unknown",
@@ -206,12 +370,27 @@ export async function runOutreachResearch() {
 				checkedAt: new Date().toISOString(),
 				verified: false,
 			});
-			evidence.verified =
-				source !== null &&
-				verifyProspectSource(evidence, source.text, source.url);
+			evidence.verified = await checkProspectSources(evidence);
 			try {
 				await saveProspect(evidence, campaign.ownerId);
 			} catch (error) {
+				if (error instanceof ProspectBindingError) {
+					await db.outreachProspect.createMany({
+						data: [
+							{
+								campaignId: campaign.id,
+								domain: evidence.domain,
+								email: evidence.email,
+								evidence,
+								status: "HELD",
+								stopReason: OUTREACH_INTAKE.bindingReason,
+								sourceVerificationDueAt: null,
+							},
+						],
+						skipDuplicates: true,
+					});
+					continue;
+				}
 				if (
 					!(
 						error instanceof Prisma.PrismaClientKnownRequestError &&
