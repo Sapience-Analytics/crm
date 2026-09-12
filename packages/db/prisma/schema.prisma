@@ -403,6 +403,7 @@ model OutreachDelivery {
   stage Int
   status String @default("SENDING")
   rfcMessageId String @unique
+  observedRfcMessageId String? @unique
   gmailMessageId String?
   gmailThreadId String?
   subject String
@@ -455,6 +456,7 @@ model OutreachLaunchTest {
   body String
   status String @default("SENDING")
   rfcMessageId String @unique
+  observedRfcMessageId String? @unique
   gmailMessageId String?
   gmailThreadId String?
   sentAt DateTime?

@@ -18,7 +18,7 @@ import {
 	OUTREACH,
 } from "@crm/validation/outreach";
 import { ActivityStampService } from "../src/crm/activity-stamp.service";
-import { GmailClient } from "../src/google/gmail.client";
+import { GmailClient, type GmailMessage } from "../src/google/gmail.client";
 import { GmailSyncService } from "../src/google/gmail-sync.service";
 import { MailboxApiClient } from "../src/mailbox/mailbox-api.client";
 import { MailboxMatchService } from "../src/mailbox/mailbox-match.service";
@@ -56,9 +56,44 @@ const dispatcher = new OutreachDispatchService(
 	parser,
 	writer,
 );
-const sent = mock(async () => ({ id: "sent-id", threadId: "thread-id" }));
+const messages = new Map<string, GmailMessage>();
+const sent = mock(
+	async (_token: string, message: Parameters<OutreachGmail["send"]>[1]) =>
+		accept(message),
+);
 const restores: (() => void)[] = [];
 let owned = false;
+
+function accept(
+	message: Parameters<OutreachGmail["send"]>[1],
+	rewritten = false,
+) {
+	const id = `sent-${crypto.randomUUID()}`;
+	const threadId = message.threadId ?? `thread-${crypto.randomUUID()}`;
+	messages.set(id, {
+		id,
+		threadId,
+		internalDate: String(Date.now()),
+		labelIds: ["SENT"],
+		payload: {
+			mimeType: "text/plain",
+			headers: [
+				{
+					name: "Message-ID",
+					value: `<${rewritten ? `CAPx-${id}@mail.gmail.com` : message.rfcId}>`,
+				},
+				{ name: "From", value: message.from },
+				{ name: "To", value: message.to },
+				{ name: "Subject", value: message.subject },
+				...(message.rootId
+					? [{ name: "References", value: `<${message.rootId}>` }]
+					: []),
+			],
+			body: { data: Buffer.from(message.body).toString("base64url") },
+		},
+	});
+	return { id, threadId };
+}
 
 function evidence(index: number) {
 	return evidenceSchema.parse({
@@ -140,24 +175,15 @@ beforeEach(async () => {
 	const search = spyOn(gmail, "search").mockResolvedValue([]);
 	const thread = spyOn(gmail, "threadIds").mockResolvedValue([]);
 	const message = spyOn(gmail, "message").mockImplementation(
-		async (_token, id) => ({
-			id,
-			internalDate: String(now.getTime()),
-			labelIds: ["SENT"],
-			payload: {
-				headers: [
-					{ name: "message-id", value: `<${id}@test>` },
-					{ name: "from", value: OUTREACH.sender },
-					{ name: "to", value: "manager@fleet-3.example.test" },
-				],
-			},
-		}),
+		async (_token, id) => {
+			const message = messages.get(id);
+			if (!message) throw new Error("Unknown mocked Gmail message");
+			return message;
+		},
 	);
+	messages.clear();
 	sent.mockClear();
-	sent.mockImplementation(async () => ({
-		id: `sent-${crypto.randomUUID()}`,
-		threadId: "thread-id",
-	}));
+	sent.mockImplementation(async (_token, message) => accept(message));
 	const send = spyOn(gmail, "send").mockImplementation(sent);
 	const context = spyOn(writer, "context").mockResolvedValue({
 		ourAddresses: new Set([OUTREACH.sender]),
@@ -241,6 +267,82 @@ async function pilot(size = 12) {
 }
 
 describe("outreach durable workflow", () => {
+	test("verified delivered identities preserve case in both follow-ups and CRM threading", async () => {
+		await pilot();
+		sent.mockImplementation(async (_token, message) => accept(message, true));
+		await dispatcher.run();
+		const initial = await db.outreachDelivery.findFirstOrThrow();
+		expect(initial.observedRfcMessageId).toStartWith("CAPx-");
+		expect(initial.observedRfcMessageId).not.toBe(initial.rfcMessageId);
+		expect(initial.loggedAt).not.toBeNull();
+		await db.outreachProspect.updateMany({
+			where: { id: { not: initial.prospectId }, manual: false },
+			data: { status: "HELD" },
+		});
+		await db.outreachDelivery.update({
+			where: { id: initial.id },
+			data: { observedRfcMessageId: null },
+		});
+		for (const stage of [1, 2]) {
+			const prospect = await db.outreachProspect.findUniqueOrThrow({
+				where: { id: initial.prospectId },
+			});
+			setSystemTime(prospect.nextDueAt);
+			await db.mailboxSync.update({
+				where: { userId_source: { userId, source: "calendar" } },
+				data: { lastSyncedAt: prospect.nextDueAt },
+			});
+			await dispatcher.run();
+			const request = sent.mock.calls[stage]?.[1];
+			expect(request?.rootId).toBe(initial.observedRfcMessageId ?? undefined);
+			expect(request?.threadId).toBe(initial.gmailThreadId ?? undefined);
+		}
+		expect(sent).toHaveBeenCalledTimes(3);
+		expect(
+			(
+				await db.outreachDelivery.findUniqueOrThrow({
+					where: { id: initial.id },
+				})
+			).rfcMessageId,
+		).toBe(initial.rfcMessageId);
+		const logged = await db.emailMessage.findMany({
+			where: { syncedByUserId: userId },
+		});
+		expect(logged).toHaveLength(3);
+		expect(new Set(logged.map((message) => message.threadId)).size).toBe(1);
+	});
+	test("a conflicting delivered identity holds existing sends and follow-ups", async () => {
+		await pilot();
+		await dispatcher.run();
+		const initial = await db.outreachDelivery.findFirstOrThrow();
+		const message = messages.get(initial.gmailMessageId ?? "");
+		if (!message?.payload?.headers)
+			throw new Error("Missing mocked sent message");
+		message.payload.headers = message.payload.headers.map((entry) =>
+			entry.name === "Message-ID"
+				? { ...entry, value: "<changed@mail.gmail.com>" }
+				: entry,
+		);
+		await db.outreachProspect.updateMany({
+			where: { id: { not: initial.prospectId }, manual: false },
+			data: { status: "HELD" },
+		});
+		const prospect = await db.outreachProspect.findUniqueOrThrow({
+			where: { id: initial.prospectId },
+		});
+		setSystemTime(prospect.nextDueAt);
+		await db.mailboxSync.update({
+			where: { userId_source: { userId, source: "calendar" } },
+			data: { lastSyncedAt: prospect.nextDueAt },
+		});
+		await dispatcher.run();
+		await dispatcher.run();
+		expect(sent).toHaveBeenCalledTimes(1);
+		expect((await service.status(userId)).lastError).toContain(
+			"identity changed",
+		);
+		expect(await db.outreachDelivery.count()).toBe(1);
+	});
 	test("default state cannot send", async () => {
 		await dispatcher.run();
 		expect(sent).not.toHaveBeenCalled();

@@ -17,6 +17,7 @@ import { MailboxTokenService } from "../mailbox/mailbox-token.service";
 import { ThreadWriterService } from "../mailbox/thread-writer.service";
 import { OutreachService } from "./outreach.service";
 import { OutreachGmail } from "./outreach-gmail";
+import { verifiedSentIdentity } from "./outreach-identity";
 import {
 	classifyOutreachMessage,
 	storeOutreachMessage,
@@ -50,6 +51,7 @@ export class OutreachLaunchTestsService {
 				body: row.body,
 				status: row.status,
 				rfcMessageId: row.rfcMessageId,
+				observedRfcMessageId: row.observedRfcMessageId,
 				gmailMessageId: row.gmailMessageId,
 				gmailThreadId: row.gmailThreadId,
 				loggedAt: row.loggedAt?.toISOString() ?? null,
@@ -234,7 +236,7 @@ export class OutreachLaunchTestsService {
 		const row = await this.db.outreachLaunchTest.findFirstOrThrow({
 			where: { id, ownerId: userId },
 		});
-		if (!row.gmailMessageId)
+		if (!row.observedRfcMessageId)
 			throw new BadRequestException(
 				"Reconcile the test delivery before recording recipient headers.",
 			);
@@ -242,7 +244,7 @@ export class OutreachLaunchTestsService {
 		try {
 			evidence = recipientHeaderEvidence(
 				headers,
-				row.rfcMessageId,
+				row.observedRfcMessageId,
 				row.recipientEmail,
 			);
 		} catch (error) {
@@ -289,14 +291,39 @@ export class OutreachLaunchTestsService {
 					"No unique sent test message exists. No automatic retry occurs.",
 				);
 			}
-			row = await this.db.outreachLaunchTest.update({
-				where: { id },
+			const sent = await this.gmail.message(token, message.id);
+			const parsed = this.parser.parse(sent);
+			if (!parsed) throw new Error("Sent test message cannot be parsed.");
+			verifiedSentIdentity(
+				sent,
+				parsed,
+				{
+					...row,
+					gmailMessageId: message.id,
+					gmailThreadId: message.threadId,
+					sender: OUTREACH.sender,
+					recipient: row.recipientEmail,
+				},
+				true,
+			);
+			await this.db.outreachLaunchTest.updateMany({
+				where: { id, gmailMessageId: null, gmailThreadId: null },
 				data: {
 					status: "SENT",
 					gmailMessageId: message.id,
 					gmailThreadId: message.threadId,
 				},
 			});
+			row = await this.db.outreachLaunchTest.findUniqueOrThrow({
+				where: { id },
+			});
+			if (
+				row.gmailMessageId !== message.id ||
+				row.gmailThreadId !== message.threadId
+			)
+				throw new Error(
+					"Test delivery Gmail identity conflicts with its durable record.",
+				);
 		}
 		if (!row.gmailMessageId || !row.gmailThreadId)
 			throw new Error("Test delivery is incomplete.");
@@ -340,15 +367,39 @@ export class OutreachLaunchTestsService {
 		token: string,
 		response: boolean,
 	) {
-		if (response ? row.responseLoggedAt : row.loggedAt) return;
+		if (response && row.responseLoggedAt) return;
 		const message = await this.gmail.message(token, messageId);
 		const parsed = this.parser.parse(message);
 		if (!parsed)
 			throw new Error("Test message cannot be parsed for CRM logging.");
-		if (!response && parsed.rfcMessageId !== row.rfcMessageId)
-			throw new Error(
-				"The sent test Message-ID does not match its durable record.",
-			);
+		if (!response) {
+			const observedRfcMessageId = verifiedSentIdentity(message, parsed, {
+				...row,
+				sender: OUTREACH.sender,
+				recipient: row.recipientEmail,
+			});
+			await this.db.outreachLaunchTest.updateMany({
+				where: {
+					id: row.id,
+					observedRfcMessageId: null,
+					gmailMessageId: row.gmailMessageId,
+					gmailThreadId: row.gmailThreadId,
+				},
+				data: { observedRfcMessageId },
+			});
+			const bound = await this.db.outreachLaunchTest.findUniqueOrThrow({
+				where: { id: row.id },
+			});
+			if (
+				bound.observedRfcMessageId !== observedRfcMessageId ||
+				bound.gmailMessageId !== row.gmailMessageId ||
+				bound.gmailThreadId !== row.gmailThreadId
+			)
+				throw new Error(
+					"Test delivery identity binding conflicts with its durable record.",
+				);
+			if (row.loggedAt) return;
+		}
 		const mailbox = await this.db.mailboxSync.findUniqueOrThrow({
 			where: { userId_source: { userId: row.ownerId, source: "gmail" } },
 		});

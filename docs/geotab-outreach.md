@@ -51,6 +51,10 @@ Unreadable, incomplete or stale mailbox evidence holds sending. CRM import filte
 Manual outbound contact also stops the sequence. Quoted email history is removed before opt-out classification.
 
 Every send reserves a durable delivery with a fixed RFC Message-ID before contacting Gmail.
+Gmail can replace that planned ID. The system preserves it and stores a separate verified delivered Message-ID.
+Verification reads the exact Gmail message and thread IDs returned by sending. It checks sender, recipient, content and acceptance time.
+Only full-body whitespace is normalized for Gmail line wrapping. Different words, recipients or identities hold reconciliation.
+Follow-ups reference the verified delivered ID. Their initial delivery must also have confirmed CRM logging.
 A timeout or uncertain response never triggers another send. The worker searches Sent mail for that Message-ID.
 A unique match completes the original delivery. No unique match holds the campaign for investigation.
 Do not delete uncertain delivery records or change their Message-ID to force a retry.
@@ -101,6 +105,9 @@ The API creates an isolated test contact and durable test records. These records
 The test sends one reply request and one opt-out request. It sends no automatic follow-ups.
 The daily test limit is two messages. An uncertain send requires reconciliation through **Check results**.
 The same batch cannot send twice. Rechecking a test only reconciles delivery, logging and responses.
+Existing confirmed sends reconcile through their stored Gmail IDs, including sends whose RFC Message-ID Gmail replaced.
+The evidence references show planned and delivered IDs. Receiver headers must match the verified delivered ID.
+Pasted receiver headers never establish a delivery identity. Uncertain sends without Gmail IDs still require the planned-ID match.
 
 Reply from the receiving inbox with the requested text. Then check both test results in CompAI.
 Copy **Show original** headers from the receiving Gmail inbox into each test's header field.
