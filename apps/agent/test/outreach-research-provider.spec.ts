@@ -197,7 +197,7 @@ test("numeric validation errors report only approved request fields and reason w
 					code: 400,
 					type: null,
 					param: "parallel_tool_calls",
-					message: `Unsupported parallel_tool_calls. Invalid reasoning effort. Customer: private@example.com ${key}`,
+				message: `Unsupported parallel_tool_calls. Invalid reasoning effort. Invalid sourceUrl format uri pattern anyOf. Customer: private@example.com ${key}`,
 				},
 			},
 			{ status: 400 },
@@ -207,6 +207,8 @@ test("numeric validation errors report only approved request fields and reason w
 	expect(error?.message).toContain("HTTP 400");
 	expect(error?.message).toContain("parallel_tool_calls");
 	expect(error?.message).toContain("reasoning");
+	expect(error?.message).toContain("sourceUrl");
+	expect(error?.message).toContain("uri");
 	expect(error?.message).toContain("unsupported");
 	expect(error?.message).not.toContain("private@example.com");
 	expect(error?.message).not.toContain(key);

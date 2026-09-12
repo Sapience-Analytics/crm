@@ -30,6 +30,18 @@ const requestFields = [
 	"tools",
 	"schema",
 	"name",
+	"format",
+	"uri",
+	"pattern",
+	"anyOf",
+	"minItems",
+	"maxItems",
+	"additionalProperties",
+	"required",
+	"properties",
+	"sourceUrl",
+	"email",
+	"domain",
 ] as const;
 const validationReasons = [
 	"unsupported",
