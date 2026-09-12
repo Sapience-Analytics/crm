@@ -356,6 +356,7 @@ model OutreachCampaign {
   sendLeaseUntil DateTime?
   lastError String?
   lastResearchError String?
+  aiPausedReason String?
   lastTickAt DateTime?
   lastResearchAt DateTime?
   pilotPassedAt DateTime?
@@ -388,9 +389,27 @@ model OutreachProspect {
   replyDraft String?
   replyDraftLeaseUntil DateTime?
   replyDraftDueAt DateTime @default(now())
+  replyDraftAttempts Int @default(0)
   stoppedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  sourceVerificationAttempts Int @default(0)
+  sourceVerificationDueAt DateTime? @default(now())
+  sourceVerificationLease String?
+  sourceVerificationLeaseUntil DateTime?
+  emailDrafts Json?
+  emailDraftHash String?
+  emailDraftStatus String @default("PENDING")
+  emailDraftAttempts Int @default(0)
+  emailDraftDueAt DateTime @default(now())
+  emailDraftLease String?
+  emailDraftLeaseUntil DateTime?
+  emailDraftError String?
+  emailDraftModel String?
+  emailDraftGeneratedAt DateTime?
+  emailDraftReviewedHash String?
+  emailDraftReviewedAt DateTime?
+  @@index([emailDraftStatus, emailDraftDueAt])
   deliveries OutreachDelivery[]
   @@index([campaignId, status, nextDueAt])
   @@map("outreachProspect")

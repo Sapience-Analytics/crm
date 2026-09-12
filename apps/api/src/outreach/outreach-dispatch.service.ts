@@ -14,17 +14,21 @@ import {
 	OUTREACH,
 	perthDay,
 	readinessSchema,
-	renderEmail,
 	sendWindow,
 	templatesSchema,
 	weekStart,
 } from "@crm/validation/outreach";
+import {
+	campaignHash,
+	currentDraft,
+	draftReviewHash,
+} from "@crm/validation/outreach-draft-state";
 import { Injectable } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
 import { GmailSyncService } from "../google/gmail-sync.service";
 import { MailboxTokenService } from "../mailbox/mailbox-token.service";
 import { ThreadWriterService } from "../mailbox/thread-writer.service";
-import { campaignHash } from "./outreach.service";
+import { verifiedOutreachContact } from "./outreach-contact";
 import { OutreachGmail } from "./outreach-gmail";
 import { verifiedSentIdentity } from "./outreach-identity";
 import {
@@ -105,7 +109,7 @@ export class OutreachDispatchService {
 			);
 			if (!scopes.has("https://www.googleapis.com/auth/gmail.send"))
 				throw new Error("Reconnect Gmail with sending permission.");
-			const next = await this.db.outreachProspect.findFirst({
+			const candidates = await this.db.outreachProspect.findMany({
 				where: {
 					campaignId: campaign.id,
 					manual: false,
@@ -114,7 +118,38 @@ export class OutreachDispatchService {
 					pilotSlot: campaign.status === "PILOT" ? { not: null } : undefined,
 				},
 				orderBy: [{ nextDueAt: "asc" }, { createdAt: "asc" }],
+				take: 20,
 			});
+			let next: OutreachProspectModel | undefined;
+			for (const candidate of candidates) {
+				const draft = currentDraft(
+					candidate,
+					templatesSchema.parse(campaign.templates),
+				);
+				if (
+					draft &&
+					(candidate.pilotSlot === null ||
+						candidate.emailDraftReviewedHash === draftReviewHash(draft))
+				) {
+					try {
+						await verifiedOutreachContact(this.db, candidate, campaign.ownerId);
+						next = candidate;
+						break;
+					} catch {
+						await this.db.outreachProspect.updateMany({
+							where: { id: candidate.id, status: { in: ["READY", "ACTIVE"] } },
+							data: {
+								stopReason:
+									"Verified company/contact binding needs review before sending.",
+							},
+						});
+					}
+				}
+				await this.db.outreachProspect.updateMany({
+					where: { id: candidate.id, status: { in: ["READY", "ACTIVE"] } },
+					data: { nextDueAt: new Date(now.getTime() + OUTREACH.minuteMs * 60) },
+				});
+			}
 			if (next) await this.deliver(campaign, next, token.accessToken, lease);
 			await this.db.outreachCampaign.updateMany({
 				where: { id: campaign.id, sendLease: lease },
@@ -149,8 +184,15 @@ export class OutreachDispatchService {
 		const crmSuppressed = await this.db.suppressedContact.findUnique({
 			where: { email: prospect.email },
 		});
-		const domainSuppressed = await this.db.suppressedDomain.findUnique({
-			where: { domain: prospect.domain },
+		const domainSuppressed = await this.db.suppressedDomain.findFirst({
+			where: {
+				domain: {
+					in: [
+						prospect.domain,
+						prospect.email.split("@")[1] ?? prospect.domain,
+					],
+				},
+			},
 		});
 		if (suppressed || crmSuppressed || domainSuppressed) {
 			await this.stop(
@@ -296,16 +338,45 @@ export class OutreachDispatchService {
 		)
 			throw new Error("Initial delivery is not reconciled.");
 		const templates = templatesSchema.parse(campaign.templates);
-		const content = renderEmail(templates, evidence, prospect.nextStage);
+		const draft = currentDraft(prospect, templates);
+		if (
+			!draft ||
+			(prospect.pilotSlot !== null &&
+				prospect.emailDraftReviewedHash !== draftReviewHash(draft))
+		)
+			throw new Error(
+				"Current AI drafts and pilot preview review are required. Sending is held.",
+			);
 		const now = new Date();
 		const dayStart = new Date(`${perthDay(now)}T00:00:00+08:00`);
 		const delivery = await this.db.$transaction(async (tx) => {
 			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${campaign.id} FOR UPDATE`;
+			await tx.$queryRaw`SELECT id FROM "outreachProspect" WHERE id = ${prospect.id} FOR UPDATE`;
 			const current = await tx.outreachCampaign.findUniqueOrThrow({
 				where: { id: campaign.id },
 			});
 			const target = await tx.outreachProspect.findUniqueOrThrow({
 				where: { id: prospect.id },
+			});
+			const currentTemplates = templatesSchema.parse(current.templates);
+			const artifact = currentDraft(target, currentTemplates);
+			const content = artifact?.stages[target.nextStage];
+			const suppressed = target.email
+				? await tx.outreachSuppression.findUnique({
+						where: { email: target.email },
+					})
+				: null;
+			const crmSuppressed = target.email
+				? await tx.suppressedContact.findUnique({
+						where: { email: target.email },
+					})
+				: null;
+			const domainSuppressed = await tx.suppressedDomain.findFirst({
+				where: {
+					domain: {
+						in: [target.domain, target.email?.split("@")[1] ?? target.domain],
+					},
+				},
 			});
 			if (
 				current.sendLease !== lease ||
@@ -314,11 +385,23 @@ export class OutreachDispatchService {
 				!sendWindow(now) ||
 				!["PILOT", "ACTIVE"].includes(current.status) ||
 				current.approvedHash !== campaign.approvedHash ||
+				current.approvedHash !== campaignHash(currentTemplates) ||
+				!readinessSchema.safeParse(current.readiness).success ||
+				!artifact ||
+				!content ||
+				artifact.inputHash !== draft.inputHash ||
+				suppressed ||
+				crmSuppressed ||
+				domainSuppressed ||
+				(target.pilotSlot !== null &&
+					target.emailDraftReviewedHash !== draftReviewHash(artifact)) ||
+				target.email !== prospect.email ||
 				target.manual ||
 				!["READY", "ACTIVE"].includes(target.status) ||
 				target.nextStage !== prospect.nextStage
 			)
 				return null;
+			await verifiedOutreachContact(tx, target, current.ownerId);
 			const total = await tx.outreachDelivery.count({
 				where: { createdAt: { gte: dayStart } },
 			});
@@ -356,7 +439,8 @@ export class OutreachDispatchService {
 		if (!delivery) return;
 		try {
 			const sent = await this.gmail.send(token, {
-				...content,
+				subject: delivery.subject,
+				body: delivery.body,
 				to: prospect.email,
 				from: campaign.senderEmail,
 				rfcId: delivery.rfcMessageId,
@@ -544,6 +628,11 @@ export class OutreachDispatchService {
 				parsed.sentAt,
 			);
 		if (delivery.loggedAt) return;
+		const contactId = await verifiedOutreachContact(
+			this.db,
+			prospect,
+			campaign.ownerId,
+		);
 		const mailbox = await this.db.mailboxSync.findUniqueOrThrow({
 			where: { userId_source: { userId: campaign.ownerId, source: "gmail" } },
 		});
@@ -553,6 +642,7 @@ export class OutreachDispatchService {
 			mailbox,
 			campaign.senderEmail,
 			parsed,
+			contactId,
 		);
 		await this.db.outreachDelivery.update({
 			where: { id: delivery.id },

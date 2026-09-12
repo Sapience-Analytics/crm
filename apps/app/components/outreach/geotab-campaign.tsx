@@ -25,6 +25,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
+import { CandidateIntake } from "./candidate-intake";
 import { ControlledTests } from "./controlled-tests";
 
 type Templates = {
@@ -60,6 +61,12 @@ export function GeotabCampaign() {
 	);
 	const action = useMutation(trpc.outreach.action.mutationOptions(options));
 	const stop = useMutation(trpc.outreach.stop.mutationOptions(options));
+	const reviewDrafts = useMutation(
+		trpc.outreach.reviewDrafts.mutationOptions(options),
+	);
+	const retryDrafts = useMutation(
+		trpc.outreach.retryDrafts.mutationOptions(options),
+	);
 	const campaign = status.data;
 	if (status.error) return <p role="alert">{status.error.message}</p>;
 	if (!campaign) return <p>Loading campaign…</p>;
@@ -102,6 +109,14 @@ export function GeotabCampaign() {
 					{campaign.researchError && (
 						<p role="alert">{campaign.researchError}</p>
 					)}
+					{campaign.aiPausedReason && (
+						<p role="alert">{campaign.aiPausedReason}</p>
+					)}
+					<p>
+						Pilot: {campaign.pilotCount}/12 allocated ·{" "}
+						{campaign.draftReadyCount}/12 have all three AI drafts ·{" "}
+						{campaign.reviewedCount}/12 previews reviewed.
+					</p>
 					<div className="flex flex-wrap gap-2">
 						<Button
 							variant="outline"
@@ -130,7 +145,8 @@ export function GeotabCampaign() {
 								action.isPending ||
 								!campaign.approved ||
 								!campaign.ready ||
-								!campaign.sendConnected
+								!campaign.sendConnected ||
+								!campaign.pilotReady
 							}
 							onClick={() => action.mutate({ action: "start-pilot" })}
 						>
@@ -197,9 +213,10 @@ export function GeotabCampaign() {
 				}
 			>
 				{campaign.approved
-					? "Rules and templates approved"
-					: "Approve these rules and templates"}
+					? "Templates and AI personalisation rules approved"
+					: "Approve templates and AI personalisation rules"}
 			</Button>
+			<CandidateIntake />
 			<ControlledTests sendConnected={campaign.sendConnected} />
 			<LaunchChecks ready={campaign.ready} />
 			<Card>
@@ -237,7 +254,7 @@ export function GeotabCampaign() {
 			</Card>
 			{prospects.error && <p role="alert">{prospects.error.message}</p>}
 			{prospects.data?.rows.map((prospect) => (
-				<Card key={prospect.id}>
+				<Card key={prospect.id} role="region" aria-label={prospect.company}>
 					<CardHeader>
 						<CardTitle>
 							{prospect.company} — {prospect.status}
@@ -260,11 +277,78 @@ export function GeotabCampaign() {
 								permanently excluded.
 							</p>
 						)}
-						<details>
-							<summary>Initial email preview</summary>
-							<p>{prospect.preview.subject}</p>
-							<pre className="whitespace-pre-wrap">{prospect.preview.body}</pre>
-						</details>
+						{prospect.contactSourceUrl && (
+							<a
+								href={prospect.contactSourceUrl}
+								target="_blank"
+								rel="noreferrer"
+							>
+								Review published contact role
+							</a>
+						)}
+						{prospect.contactRoleQuote && <p>{prospect.contactRoleQuote}</p>}
+						<p>
+							AI drafts: {prospect.draft.status}.{" "}
+							{prospect.draft.reviewedAt
+								? "All three previews reviewed."
+								: "Preview review required before the pilot."}
+						</p>
+						{prospect.draft.hold && <p role="status">{prospect.draft.hold}</p>}
+						{prospect.draft.stages.map((stage) => (
+							<details key={stage.stage}>
+								<summary>
+									{stage.stage === 0
+										? "Initial email"
+										: `Follow-up ${stage.stage}`}{" "}
+									— AI-generated preview
+								</summary>
+								<p>{stage.subject}</p>
+								<pre className="whitespace-pre-wrap">{stage.body}</pre>
+								<p>Opening source: {stage.openingSourceQuote}</p>
+								<p>Question source: {stage.questionSourceQuote}</p>
+								<Button
+									variant="outline"
+									onClick={() =>
+										navigator.clipboard.writeText(
+											`Subject: ${stage.subject}\n\n${stage.body}`,
+										)
+									}
+								>
+									Copy{" "}
+									{stage.stage === 0
+										? "initial email"
+										: `follow-up ${stage.stage}`}
+								</Button>
+							</details>
+						))}
+						{prospect.draft.reviewHash && (
+							<Button
+								variant="outline"
+								disabled={reviewDrafts.isPending || !!prospect.draft.reviewedAt}
+								onClick={() => {
+									if (prospect.draft.reviewHash)
+										reviewDrafts.mutate({
+											id: prospect.id,
+											hash: prospect.draft.reviewHash,
+										});
+								}}
+							>
+								Record review of all three previews
+							</Button>
+						)}
+						{["READY", "MANUAL"].includes(prospect.status) &&
+							prospect.draft.status !== "READY" && (
+								<Button
+									variant="outline"
+									disabled={
+										retryDrafts.isPending ||
+										prospect.draft.status === "GENERATING"
+									}
+									onClick={() => retryDrafts.mutate({ id: prospect.id })}
+								>
+									Retry held AI drafts
+								</Button>
+							)}
 						{prospect.status === "HELD" &&
 							prospect.verified &&
 							prospect.email && <QualifyProspect id={prospect.id} />}
@@ -334,8 +418,11 @@ function TemplateEditor({ initial }: { initial: Templates }) {
 			<CardHeader>
 				<CardTitle>Email templates</CardTitle>
 				<CardDescription>
-					Personalisation uses the company name and an exact source quote.
-					Changes pause sending and clear approval.
+					AI writes natural openings and fleet-needs questions using verified
+					source facts. All three approved stage templates guide its intent. The
+					initial Geotab offer and every signature remain fixed. A separate AI
+					grounding review checks each opening and question. Your pilot preview
+					review is also required. Changes pause sending and clear approval.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>

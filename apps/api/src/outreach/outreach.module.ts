@@ -7,6 +7,8 @@ import { OutreachRouter } from "./outreach.router";
 import { OutreachService } from "./outreach.service";
 import { OutreachDispatchService } from "./outreach-dispatch.service";
 import { OutreachGmail } from "./outreach-gmail";
+import { OutreachIntakeRouter } from "./outreach-intake.router";
+import { OutreachIntakeService } from "./outreach-intake.service";
 import { OutreachLaunchTestsService } from "./outreach-launch-tests.service";
 
 @Module({
@@ -17,6 +19,8 @@ import { OutreachLaunchTestsService } from "./outreach-launch-tests.service";
 		OutreachDispatchService,
 		OutreachRouter,
 		OutreachLaunchTestsService,
+		OutreachIntakeService,
+		OutreachIntakeRouter,
 	],
 	controllers: [OutreachController],
 })

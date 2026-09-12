@@ -34,12 +34,34 @@ export async function storeOutreachMessage(
 		where: { rfcMessageId: parsed.rfcMessageId },
 		select: {
 			id: true,
-			thread: { select: { activity: { select: { id: true } } } },
+			thread: {
+				select: {
+					contactId: true,
+					companyId: true,
+					activity: { select: { id: true, contactId: true, companyId: true } },
+				},
+			},
 		},
 	});
 	if (!logged?.thread.activity)
 		throw new Error(
 			"Sent email has no CRM message and activity. Logging will retry.",
 		);
+	if (knownContactId) {
+		const contact = await db.contact.findUnique({
+			where: { id: knownContactId },
+			select: { companyId: true },
+		});
+		if (
+			!contact ||
+			logged.thread.contactId !== knownContactId ||
+			logged.thread.companyId !== contact.companyId ||
+			logged.thread.activity.contactId !== knownContactId ||
+			logged.thread.activity.companyId !== contact.companyId
+		)
+			throw new Error(
+				"The CRM message and activity do not match the verified outreach contact.",
+			);
+	}
 	return logged.id;
 }
