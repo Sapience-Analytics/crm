@@ -27,6 +27,7 @@ import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
 import { CandidateIntake } from "./candidate-intake";
 import { ControlledTests } from "./controlled-tests";
+import { SourceQuoteRevision } from "./source-quote-revision";
 
 type Templates = {
 	subject: string;
@@ -271,6 +272,15 @@ export function GeotabCampaign() {
 							Review company source
 						</a>
 						<p>{prospect.stopReason}</p>
+						{["READY", "MANUAL"].includes(prospect.status) && (
+							<SourceQuoteRevision
+								key={`${prospect.id}:${prospect.sourceQuote}`}
+								id={prospect.id}
+								company={prospect.company}
+								sourceQuote={prospect.sourceQuote}
+								sourceUrl={prospect.sourceUrl}
+							/>
+						)}
 						{prospect.manual && (
 							<p>
 								Manual test prospect. Send and follow up yourself. Automation is

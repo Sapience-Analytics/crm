@@ -1,6 +1,8 @@
 import {
 	importCandidatesInput,
 	importCandidatesOutput,
+	reviseSourceQuoteInput,
+	reviseSourceQuoteOutput,
 } from "@crm/validation/outreach-intake";
 import { Inject } from "@nestjs/common";
 import { Ctx, Input, Mutation, Router, UseMiddlewares } from "nestjs-trpc";
@@ -23,5 +25,13 @@ export class OutreachIntakeRouter {
 		@Input() input: z.infer<typeof importCandidatesInput>,
 	) {
 		return this.service.importCandidates(ctx.user.id, input);
+	}
+
+	@Mutation({ input: reviseSourceQuoteInput, output: reviseSourceQuoteOutput })
+	reviseSourceQuote(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof reviseSourceQuoteInput>,
+	) {
+		return this.service.reviseSourceQuote(ctx.user.id, input);
 	}
 }

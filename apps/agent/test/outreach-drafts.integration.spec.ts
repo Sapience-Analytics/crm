@@ -6,7 +6,11 @@ import {
 	OUTREACH,
 } from "@crm/validation/outreach";
 import { currentDraft } from "@crm/validation/outreach-draft-state";
-import { DRAFTING } from "@crm/validation/outreach-drafts";
+import {
+	DRAFTING,
+	generatedSequenceSchema,
+	groundedSequence,
+} from "@crm/validation/outreach-drafts";
 import { gatewayText, outreachAiText } from "../agent/lib/outreach-ai";
 import { draftOutreachSequence } from "../agent/lib/outreach-drafts";
 import { draftOutreachReply } from "../agent/lib/outreach-replies";
@@ -198,6 +202,69 @@ test("reserves before both paid calls and atomically persists three natural draf
 	expect(generate).toHaveBeenCalledTimes(2);
 });
 
+test("generation receives only dynamic slots and a valid fictional example while review retains full approved templates", async () => {
+	generate.mockImplementation(async (request) => {
+		const input = JSON.parse(request.prompt);
+		if (request.phase === "generation") {
+			expect(input).toMatchObject({
+				company: evidence.company,
+				verifiedSourceQuote: quote,
+			});
+			expect(input.approvedTemplates).toBeUndefined();
+			expect(input.policy).toBeUndefined();
+			for (const fixedCopy of Object.values(DEFAULT_TEMPLATES)) {
+				expect(request.prompt).not.toContain(
+					JSON.stringify(fixedCopy).slice(1, -1),
+				);
+			}
+			expect(input.generatedSlots).toHaveLength(4);
+			expect(input.stageIntents).toHaveLength(3);
+			expect(request.instructions).toContain(
+				"You are not writing complete emails or a sales pitch.",
+			);
+			expect(request.instructions).toContain(
+				"its facts are not recipient evidence",
+			);
+			expect(input.applicationOwnedAssembly.stage0).toEqual([
+				"greeting",
+				"opening",
+				"fixed sender and Geotab offer",
+				"question",
+				"signature and unsubscribe",
+			]);
+			const example = generatedSequenceSchema.parse(
+				input.fictionalExample.output,
+			);
+			const exampleEvidence = evidenceSchema.parse({
+				...evidence,
+				company: input.fictionalExample.company,
+				sourceQuote: input.fictionalExample.verifiedSourceQuote,
+			});
+			expect(
+				groundedSequence(example, DEFAULT_TEMPLATES, exampleEvidence),
+			).toHaveLength(3);
+			expect(() =>
+				groundedSequence(example, DEFAULT_TEMPLATES, evidence),
+			).toThrow("not exact verified evidence");
+		} else {
+			expect(input.approvedTemplates).toEqual(DEFAULT_TEMPLATES);
+			expect(input.stages).toHaveLength(3);
+			expect(input.stages[0].body).toContain("Sapience Analytics");
+			for (const stage of input.stages) {
+				expect(stage.body).toContain(DEFAULT_TEMPLATES.signature);
+			}
+		}
+		return {
+			text: JSON.stringify(request.phase === "review" ? review : sequence),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	await draftOutreachSequence();
+	expect((await record()).emailDraftStatus).toBe("READY");
+	expect(generate).toHaveBeenCalledTimes(2);
+});
+
 test("manual prospects receive the same three drafts without changing exclusion or allocating slots", async () => {
 	await db.outreachProspect.update({
 		where: { id },
@@ -352,6 +419,63 @@ test("unrecognized review prose stays hidden instead of entering safe flag diagn
 		"AI drafting or validation failed. Drafts stay held; no template fallback occurs.",
 	);
 	expect(row.emailDrafts).toBeNull();
+});
+
+test("grounding rejection logs only bounded validated copy and redacts source contact addresses", async () => {
+	const sourceQuote = `${quote} Contact private@example.test at https://drafting.example.test/private.`;
+	await db.outreachProspect.update({
+		where: { id },
+		data: { evidence: { ...evidence, sourceQuote } },
+	});
+	const rejectedReview = { ...review, grounded: false };
+	const rejectedSequence = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			openingSourceQuote: sourceQuote,
+			questionSourceQuote: sourceQuote,
+		})),
+	};
+	generate.mockImplementation(async (request) => ({
+		text: JSON.stringify(
+			request.phase === "review" ? rejectedReview : rejectedSequence,
+		),
+		costMicroUsd: 3000,
+		finishReason: "stop",
+	}));
+	const writes = spyOn(process.stderr, "write").mockReturnValue(true);
+	try {
+		await draftOutreachSequence();
+		expect(writes).toHaveBeenCalledTimes(1);
+		const output = String(writes.mock.calls[0][0]);
+		const event = JSON.parse(output);
+		expect(Object.keys(event).sort()).toEqual([
+			"event",
+			"inputHash",
+			"prospectId",
+			"review",
+			"stages",
+		]);
+		expect(event).toMatchObject({
+			event: "outreach.grounding_rejected",
+			prospectId: id,
+			review: rejectedReview,
+		});
+		expect(event.stages).toHaveLength(3);
+		expect(event.stages[0].opening).toBe(sequence.stages[0].opening);
+		expect(event.stages[0].question).toBe(sequence.stages[0].question);
+		expect(output).not.toContain("private@example.test");
+		expect(output).not.toContain("https://drafting.example.test/private");
+		expect(output).not.toContain(OUTREACH.sender);
+		expect(output).toContain("[redacted]");
+		expect(output.length).toBeLessThan(8000);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftReviewedAt: null,
+		});
+	} finally {
+		writes.mockRestore();
+	}
 });
 
 test("unsupported claim fails before the second paid review", async () => {

@@ -36,7 +36,9 @@ No third follow-up exists. An overdue message waits for the next sending window 
 AI writes natural openings and fleet-needs questions for all three stages using verified source facts.
 The preview shows an exact supporting source reference for each opening and question; those references are review evidence, not extra text appended to the email. A separate AI review audits grounding and stage intent.
 Deterministic checks reject unsupported numbers, commercial claims, added links, placeholders and missing sender identification or unsubscribe instructions.
-The approved initial Geotab offer and every signature remain fixed. All approved stage templates guide generation and grounding review.
+The approved initial Geotab offer and every signature remain fixed. Generation receives only dynamic slots, stage intent and verified evidence.
+Assembly labels and a fictional example separate generated copy from application-owned text. Example facts are never recipient evidence.
+The independent grounding review receives all approved templates and all three complete rendered emails.
 Three complete messages persist together before any send. The preview and delivery use those exact stored strings.
 The pilot requires Danny's review of all three previews for each prospect. Manual prospects receive copyable drafts and remain excluded from sending.
 Replies pause the sequence. AI creates a proposed reply in CompAI. Danny reviews and sends it himself.
@@ -67,6 +69,11 @@ Intake creates held, unverified records. It does not grant consent, allocate pil
 The agent independently verifies the official website and contact evidence, including published contact addresses on a different mailbox domain. It creates or reuses the exact contact under the verified company. Archived, conflicting or suppressed records remain held without reassignment.
 Transient source failures retry after fifteen minutes, with at most three attempts. Importing the same manifest again does not reset a held record or its verification attempts.
 Qualification remains a separate owner action recording the relevant role, contact basis and absence of restrictions.
+
+Qualified, unsent prospects have a **Revise source quote** control. Paste stronger exact evidence from the same linked source page.
+Saving pauses sending and removes that prospect's draft previews and review. The cloud worker rechecks the quote before new drafting.
+The company, source URL, contact, consent and permanent pilot assignment remain unchanged. Other reviewed prospects retain their drafts.
+An active verification or drafting lease, suppression, or any delivery record blocks revision. Failed source checks remain unsendable.
 
 ## Safety and recovery
 
@@ -116,7 +123,7 @@ Current contracts: [Agent API](https://docs.perplexity.ai/api-reference/agent-po
 Sequence generation, grounding reviews and reply drafts share the same US$10 monthly `ai:YYYY-MM` ledger.
 Each request reserves US$0.10 before calling GPT-5.4 mini through AI Gateway, with only the OpenAI provider and no fallback.
 Current published model pricing must fit the reservation before dispatch. Inputs are bounded to 20,000 UTF-8 bytes plus estimated overhead.
-Output caps are 3,000 tokens for three drafts, 600 for grounding review and 700 for a reply draft.
+Output caps are 3,000 tokens for three drafts, 3,000 for grounding review and 700 for a reply draft.
 Actual Gateway costs settle reservations. Missing usage retains the full reservation; observed overruns pause further CRM drafting for review.
 The UI distinguishes confirmed costs from charged or reserved amounts. Provider errors use fixed safe messages.
 Requests use bounded output and no automatic AI retries. Reaching an allowance stops new paid work.
