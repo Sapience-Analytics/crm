@@ -77,3 +77,23 @@ Source tests reject unsupported quotations, missing emails and unrelated domains
 Policy tests cover Perth time, follow-up timing, template fields and message-header injection.
 
 Controlled live delivery and sender authentication still require verification before launch.
+
+### Controlled Gmail tests
+
+Use **Controlled Gmail tests** on the campaign page while the campaign is paused.
+Enter a separate Gmail inbox that Danny controls. Confirm ownership and the two displayed test messages.
+The API creates an isolated test contact and durable test records. These records use no pilot allocations.
+The test sends one reply request and one opt-out request. It sends no automatic follow-ups.
+The daily test limit is two messages. An uncertain send requires reconciliation through **Check results**.
+The same batch cannot send twice. Rechecking a test only reconciles delivery, logging and responses.
+
+Reply from the receiving inbox with the requested text. Then check both test results in CompAI.
+Copy **Show original** headers from the receiving Gmail inbox into each test's header field.
+The stored evidence includes message identity and aligned SPF, DKIM and DMARC results. Raw headers are not stored.
+The page verifies Gmail receipt, CRM logging and response classification. It does not exercise a prospect sequence.
+Integration tests verify durable sequence stops. The owner records launch checks after reviewing both evidence sets.
+These controls never approve templates, mark launch checks complete or start prospect outreach.
+
+The controlled contact permits exact email matching for a personal Gmail inbox.
+Ordinary mailbox matching still excludes free-email domains when it creates a thread.
+A prospect using such an address needs logging verification before launch. Failed logging holds reconciliation and never resends.

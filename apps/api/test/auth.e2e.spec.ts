@@ -91,4 +91,18 @@ describe("Auth (e2e)", () => {
 			.get("/internal/outreach/dispatch")
 			.expect(503);
 	});
+	it("keeps controlled email tests behind the session", async () => {
+		await request(app.getHttpServer())
+			.get("/api/trpc/outreach.launchTests")
+			.expect(401);
+		for (const action of [
+			"startLaunchTests",
+			"checkLaunchTest",
+			"recordLaunchTestHeaders",
+		])
+			await request(app.getHttpServer())
+				.post(`/api/trpc/outreach.${action}`)
+				.send({})
+				.expect(401);
+	});
 });

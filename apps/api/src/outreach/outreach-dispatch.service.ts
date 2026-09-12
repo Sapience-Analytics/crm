@@ -16,19 +16,20 @@ import {
 	readinessSchema,
 	renderEmail,
 	sendWindow,
-	stopReason,
 	templatesSchema,
 	weekStart,
 } from "@crm/validation/outreach";
 import { Injectable } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
-import { header, plainTextBody } from "../google/gmail-mime";
 import { GmailSyncService } from "../google/gmail-sync.service";
 import { MailboxTokenService } from "../mailbox/mailbox-token.service";
-import { stripQuotedHistory } from "../mailbox/message-text";
 import { ThreadWriterService } from "../mailbox/thread-writer.service";
 import { campaignHash } from "./outreach.service";
 import { OutreachGmail } from "./outreach-gmail";
+import {
+	classifyOutreachMessage,
+	storeOutreachMessage,
+} from "./outreach-message";
 
 @Injectable()
 export class OutreachDispatchService {
@@ -210,9 +211,7 @@ export class OutreachDispatchService {
 		for (const id of allIds) {
 			if (known.has(id)) continue;
 			const message = await this.gmail.message(token, id);
-			const from = header(message.payload?.headers, "from") ?? "";
-			const subject = header(message.payload?.headers, "subject") ?? "";
-			const body = stripQuotedHistory(plainTextBody(message.payload));
+			const { status, body } = classifyOutreachMessage(message);
 			if (message.labelIds?.includes("SENT")) {
 				await this.stop(
 					prospect,
@@ -222,7 +221,6 @@ export class OutreachDispatchService {
 				);
 				return false;
 			}
-			const status = stopReason(from, `${subject}\n${body}`);
 			await this.stop(
 				prospect,
 				status,
@@ -467,11 +465,12 @@ export class OutreachDispatchService {
 		const mailbox = await this.db.mailboxSync.findUniqueOrThrow({
 			where: { userId_source: { userId: campaign.ownerId, source: "gmail" } },
 		});
-		await this.writer.store(
+		await storeOutreachMessage(
+			this.db,
+			this.writer,
 			mailbox,
-			{ mailbox: campaign.senderEmail, origin: "gmail" },
+			campaign.senderEmail,
 			parsed,
-			await this.writer.context(),
 		);
 		await this.db.outreachDelivery.update({
 			where: { id: delivery.id },

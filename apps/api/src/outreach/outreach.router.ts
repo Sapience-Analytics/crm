@@ -1,3 +1,9 @@
+import {
+	launchTestHeadersInput,
+	launchTestIdInput,
+	launchTestsOutput,
+	startLaunchTestsInput,
+} from "@crm/validation/outreach-tests";
 import { Inject } from "@nestjs/common";
 import {
 	Ctx,
@@ -22,12 +28,15 @@ import {
 	prospectStopInput,
 } from "./outreach.contracts";
 import { OutreachService } from "./outreach.service";
+import { OutreachLaunchTestsService } from "./outreach-launch-tests.service";
 
 @Router({ alias: "outreach" })
 @UseMiddlewares(AuthMiddleware)
 export class OutreachRouter {
 	constructor(
 		@Inject(OutreachService) private readonly service: OutreachService,
+		@Inject(OutreachLaunchTestsService)
+		private readonly tests: OutreachLaunchTestsService,
 	) {}
 	@Query({ output: outreachStatusOutput })
 	status(@Ctx() ctx: AuthedTrpcContext) {
@@ -78,5 +87,30 @@ export class OutreachRouter {
 		@Input() input: z.infer<typeof prospectStopInput>,
 	) {
 		return this.service.stop(ctx.user.id, input.id);
+	}
+	@Query({ output: launchTestsOutput })
+	launchTests(@Ctx() ctx: AuthedTrpcContext) {
+		return this.tests.list(ctx.user.id);
+	}
+	@Mutation({ input: startLaunchTestsInput, output: outreachResult })
+	startLaunchTests(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof startLaunchTestsInput>,
+	) {
+		return this.tests.start(ctx.user.id, input);
+	}
+	@Mutation({ input: launchTestIdInput, output: outreachResult })
+	checkLaunchTest(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof launchTestIdInput>,
+	) {
+		return this.tests.check(ctx.user.id, input.id);
+	}
+	@Mutation({ input: launchTestHeadersInput, output: outreachResult })
+	recordLaunchTestHeaders(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof launchTestHeadersInput>,
+	) {
+		return this.tests.recordHeaders(ctx.user.id, input.id, input.headers);
 	}
 }

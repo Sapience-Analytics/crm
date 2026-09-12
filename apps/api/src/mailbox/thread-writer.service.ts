@@ -61,6 +61,7 @@ export class ThreadWriterService {
 		options: { mailbox: string; origin: SyncSource },
 		parsed: IncomingMessage,
 		context: MatchContext,
+		knownContactId?: string,
 	): Promise<boolean> {
 		const existing = await this.db.emailMessage.findUnique({
 			where: { rfcMessageId: parsed.rfcMessageId },
@@ -95,7 +96,35 @@ export class ThreadWriterService {
 		let companyId = thread?.companyId ?? null;
 		let contactId = thread?.contactId ?? null;
 
-		if (!thread) {
+		if (!thread && knownContactId) {
+			const contact = await this.db.contact.findUnique({
+				where: { id: knownContactId },
+				select: {
+					id: true,
+					email: true,
+					companyId: true,
+					archivedAt: true,
+					ownerId: true,
+				},
+			});
+			if (
+				!contact?.email ||
+				contact.archivedAt ||
+				contact.ownerId !== row.userId ||
+				!participants.some(
+					(participant) => participant.email === contact.email,
+				) ||
+				context.ourAddresses.has(contact.email) ||
+				context.ourDomains.has(contact.email.split("@")[1] ?? "") ||
+				context.suppressedEmails.has(contact.email) ||
+				context.suppressedDomains.has(contact.email.split("@")[1] ?? "")
+			)
+				throw new Error(
+					"The explicit logging contact must match an eligible message participant.",
+				);
+			companyId = contact.companyId;
+			contactId = contact.id;
+		} else if (!thread) {
 			const repliedTo =
 				outbound ||
 				(await this.hasOutboundInThread(parsed.rootId, options.mailbox));

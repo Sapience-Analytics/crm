@@ -327,7 +327,11 @@ export function useCrmCache(): CrmCache {
 
 		outreach: () =>
 			run(
-				[trpc.outreach.status.queryKey(), trpc.outreach.prospects.pathKey()],
+				[
+					trpc.outreach.status.queryKey(),
+					trpc.outreach.prospects.pathKey(),
+					trpc.outreach.launchTests.queryKey(),
+				],
 				[],
 				{},
 			),
