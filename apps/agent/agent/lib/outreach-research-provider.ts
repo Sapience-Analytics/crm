@@ -11,6 +11,22 @@ const usageSchema = z.object({
 	}),
 });
 const jsonSchema = z.json();
+const generationSchema = z.object({
+	prospects: z.array(
+		z.object({
+			company: z.string(),
+			domain: z.string(),
+			email: z.string().nullable(),
+			industry: z.string(),
+			fleetBand: z.enum(["unknown"]),
+			fleetEvidence: z.string(),
+			fit: z.string(),
+			sourceUrl: z.string(),
+			sourceQuote: z.string(),
+			waQuote: z.string(),
+		}),
+	),
+});
 const requestFields = [
 	"model",
 	"service_tier",
@@ -150,6 +166,8 @@ export function estimatedResearchMicroUsd() {
 }
 
 export function researchRequest(input: string) {
+	const schema = z.toJSONSchema(generationSchema);
+	delete schema.$schema;
 	const body = JSON.stringify({
 		model: RESEARCH_PROVIDER.model,
 		service_tier: RESEARCH_PROVIDER.serviceTier,
@@ -173,7 +191,7 @@ export function researchRequest(input: string) {
 			type: "json_schema",
 			json_schema: {
 				name: "geotab_prospects",
-				schema: z.toJSONSchema(researchResultSchema),
+				schema,
 			},
 		},
 	});

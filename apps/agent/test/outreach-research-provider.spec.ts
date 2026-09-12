@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
-import { OUTREACH } from "@crm/validation/outreach";
+import { OUTREACH, researchResultSchema } from "@crm/validation/outreach";
 import { RESEARCH_PROVIDER } from "../agent/lib/outreach-research-config";
 import {
 	estimatedResearchMicroUsd,
@@ -102,6 +102,22 @@ test("pins bounded Agent API configuration with no preset or fallback", () => {
 	expect(request.preset).toBeUndefined();
 	expect(request.models).toBeUndefined();
 	expect(request.messages).toBeUndefined();
+	const schema = request.response_format.json_schema.schema;
+	expect(
+		Object.keys(schema.properties.prospects.items.properties).sort(),
+	).toEqual(
+		Object.keys(researchResultSchema.shape.prospects.element.shape).sort(),
+	);
+	const encoded = JSON.stringify(schema);
+	for (const keyword of [
+		"$schema",
+		"format",
+		"pattern",
+		"minLength",
+		"maxLength",
+		"maxItems",
+	])
+		expect(encoded).not.toContain(`"${keyword}"`);
 	expect(estimatedResearchMicroUsd()).toBe(16_600);
 	expect(estimatedResearchMicroUsd()).toBeLessThan(
 		OUTREACH.researchReserveMicroUsd,
@@ -139,6 +155,32 @@ test("charges malformed output and never exposes its source text", async () => {
 	fetchSpy.mockResolvedValue(Response.json(result));
 	expect((await failure())?.message).toContain("invalid prospect JSON");
 	expect(charges).toEqual([3470]);
+});
+
+test("structural generation does not weaken local prospect validation", async () => {
+	for (const invalid of [
+		{ sourceUrl: "not-a-url" },
+		{ email: "invented" },
+		{ sourceQuote: "short" },
+	]) {
+		const result = answer();
+		result.output = [
+			{
+				type: "message",
+				role: "assistant",
+				status: "completed",
+				content: [
+					{
+						type: "output_text",
+						text: JSON.stringify({ prospects: [{ ...prospect, ...invalid }] }),
+					},
+				],
+			},
+		];
+		fetchSpy.mockResolvedValue(Response.json(result));
+		expect((await failure())?.message).toContain("invalid prospect JSON");
+	}
+	expect(charges).toEqual([3470, 3470, 3470]);
 });
 
 test("stops on model and service tier drift after accounting", async () => {
@@ -197,7 +239,7 @@ test("numeric validation errors report only approved request fields and reason w
 					code: 400,
 					type: null,
 					param: "parallel_tool_calls",
-				message: `Unsupported parallel_tool_calls. Invalid reasoning effort. Invalid sourceUrl format uri pattern anyOf. Customer: private@example.com ${key}`,
+					message: `Unsupported parallel_tool_calls. Invalid reasoning effort. Invalid sourceUrl format uri pattern anyOf. Customer: private@example.com ${key}`,
 				},
 			},
 			{ status: 400 },
