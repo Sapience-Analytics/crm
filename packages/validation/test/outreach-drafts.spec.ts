@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_TEMPLATES, evidenceSchema, OUTREACH } from "../src/outreach";
 import {
+	DraftValidationError,
 	generatedSequenceSchema,
 	groundedSequence,
 } from "../src/outreach-drafts";
@@ -52,6 +53,16 @@ function sequence() {
 			},
 		],
 	});
+}
+
+function validationMessage(generated: ReturnType<typeof sequence>) {
+	try {
+		groundedSequence(generated, DEFAULT_TEMPLATES, evidence);
+	} catch (error) {
+		if (!(error instanceof DraftValidationError)) throw error;
+		return error.message;
+	}
+	throw new Error("The invalid sequence unexpectedly passed validation");
 }
 
 describe("grounded personalised sequence", () => {
@@ -186,4 +197,75 @@ describe("grounded personalised sequence", () => {
 			}).success,
 		).toBe(false);
 	});
+
+	for (const stageIndex of [0, 1, 2]) {
+		for (const invalid of [
+			{
+				field: "opening",
+				value:
+					"Private opening marker about haulage.\nAnother paragraph about carting.",
+				reason: "Opening contains a line break.",
+			},
+			{
+				field: "question",
+				value:
+					"Could private question marker help?\nWould you discuss fleet reporting?",
+				reason: "Question contains a line break.",
+			},
+			{
+				field: "question",
+				value: "Would private punctuation marker help your fleet reporting.",
+				reason: "Question must end with '?'.",
+			},
+		] as const)
+			test(`identifies stage ${stageIndex}: ${invalid.reason}`, () => {
+				const generated = sequence();
+				const stage = generated.stages[stageIndex];
+				if (!stage) throw new Error("Missing stage fixture");
+				stage[invalid.field] = invalid.value;
+				const message = validationMessage(generated);
+				expect(message).toBe(
+					`Stage ${stageIndex}: AI drafts require one opening paragraph and a fleet-needs question. ${invalid.reason}`,
+				);
+				expect(message).not.toContain(stage.opening);
+				expect(message).not.toContain(stage.question);
+				expect(message).not.toContain(evidence.sourceQuote);
+			});
+
+		for (const invalid of [
+			{
+				field: "openingSourceQuote",
+				value:
+					"Private unsupported reference to nationwide freight operations.",
+				reason: "AI draft source references are not exact verified evidence.",
+			},
+			{
+				field: "opening",
+				value: "Private savings marker offers guaranteed savings on tracking.",
+				reason:
+					"AI draft includes a prohibited number, commercial claim, link or placeholder.",
+			},
+			{
+				field: "opening",
+				value: "Private fleet marker says your six trucks handle this haulage.",
+				reason: "AI draft includes an unsupported fleet quantity.",
+			},
+			{
+				field: "opening",
+				value:
+					"Your website says private unsuitable copy marker about carting.",
+				reason: "AI draft did not produce suitable personalised copy.",
+			},
+		] as const)
+			test(`labels deterministic stage ${stageIndex} rejection: ${invalid.reason}`, () => {
+				const generated = sequence();
+				const stage = generated.stages[stageIndex];
+				if (!stage) throw new Error("Missing stage fixture");
+				stage[invalid.field] = invalid.value;
+				const message = validationMessage(generated);
+				expect(message).toBe(`Stage ${stageIndex}: ${invalid.reason}`);
+				expect(message).not.toContain(invalid.value);
+				expect(message).not.toContain(evidence.sourceQuote);
+			});
+	}
 });

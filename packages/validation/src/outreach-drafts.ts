@@ -126,6 +126,7 @@ export function groundedSequence(
 			"The initial template must retain the approved Sapience Analytics and Geotab offer paragraph.",
 		);
 	return sequence.stages.map((stage) => {
+		const stageLabel = `Stage ${stage.stage}`;
 		const dynamic = `${stage.opening} ${stage.question}`;
 		if (
 			![stage.openingSourceQuote, stage.questionSourceQuote].every((quote) =>
@@ -133,7 +134,7 @@ export function groundedSequence(
 			)
 		)
 			throw new DraftValidationError(
-				"AI draft source references are not exact verified evidence.",
+				`${stageLabel}: AI draft source references are not exact verified evidence.`,
 			);
 		if (
 			/[\d$€£%]|https?:|www\.|[\w.+-]+@[\w.-]+|\{\{|\}\}|\b(?:save|savings|discount|cheaper|guarantee|price|pricing|costs?|affordable|free trial)\b/i.test(
@@ -141,7 +142,7 @@ export function groundedSequence(
 			)
 		)
 			throw new DraftValidationError(
-				"AI draft includes a prohibited number, commercial claim, link or placeholder.",
+				`${stageLabel}: AI draft includes a prohibited number, commercial claim, link or placeholder.`,
 			);
 		if (
 			/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|hundred|thousand|dozen)\s+(?:\w+\s+)?(?:vehicles|trucks|vans|utes|fleet)\b/i.test(
@@ -149,15 +150,19 @@ export function groundedSequence(
 			)
 		)
 			throw new DraftValidationError(
-				"AI draft includes an unsupported fleet quantity.",
+				`${stageLabel}: AI draft includes an unsupported fleet quantity.`,
 			);
-		if (
-			!stage.question.endsWith("?") ||
-			stage.question.includes("\n") ||
-			stage.opening.includes("\n")
-		)
+		if (stage.opening.includes("\n"))
 			throw new DraftValidationError(
-				"AI drafts require one opening paragraph and a fleet-needs question.",
+				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Opening contains a line break.`,
+			);
+		if (stage.question.includes("\n"))
+			throw new DraftValidationError(
+				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Question contains a line break.`,
+			);
+		if (!stage.question.endsWith("?"))
+			throw new DraftValidationError(
+				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Question must end with '?'.`,
 			);
 		if (
 			/your website says|ignore .*instructions|system prompt|as an ai/i.test(
@@ -165,7 +170,7 @@ export function groundedSequence(
 			)
 		)
 			throw new DraftValidationError(
-				"AI draft did not produce suitable personalised copy.",
+				`${stageLabel}: AI draft did not produce suitable personalised copy.`,
 			);
 		const subject = renderEmail(templates, evidence, stage.stage).subject;
 		const body = [
@@ -181,7 +186,7 @@ export function groundedSequence(
 				subject.includes(OUTREACH.bookingUrl))
 		)
 			throw new DraftValidationError(
-				"Initial emails cannot introduce the booking link.",
+				`${stageLabel}: Initial emails cannot introduce the booking link.`,
 			);
 		return persistedStageSchema.parse({ ...stage, subject, body });
 	});
