@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { db } from "@crm/db";
 import {
 	DEFAULT_TEMPLATES,
@@ -12,6 +13,7 @@ import {
 	OUTREACH_PRODUCT_CAPABILITIES,
 	persistedStageSchema,
 } from "@crm/validation/outreach-drafts";
+import { createGateway } from "ai";
 import { z } from "zod";
 import { gatewayText, outreachAiText } from "../agent/lib/outreach-ai";
 import { draftOutreachSequence } from "../agent/lib/outreach-drafts";
@@ -19,6 +21,8 @@ import { draftOutreachReply } from "../agent/lib/outreach-replies";
 
 const budgetId = `ai:${new Date().toISOString().slice(0, 7)}`;
 const originalEnvironment = process.env.VERCEL_ENV;
+const originalProvider = globalThis.AI_SDK_DEFAULT_PROVIDER;
+const realGenerate = gatewayText.generate;
 const fetchSpy = spyOn(globalThis, "fetch");
 const generate = spyOn(gatewayText, "generate");
 const quote =
@@ -154,6 +158,7 @@ beforeEach(async () => {
 afterEach(async () => {
 	fetchSpy.mockReset();
 	generate.mockReset();
+	globalThis.AI_SDK_DEFAULT_PROVIDER = originalProvider;
 	if (originalEnvironment === undefined) delete process.env.VERCEL_ENV;
 	else process.env.VERCEL_ENV = originalEnvironment;
 	if (!ownsFixtures) return;
@@ -355,6 +360,143 @@ async function selectDepartmentForDraftTest() {
 const reviewCopySchema = z.object({
 	stages: z.array(persistedStageSchema).length(3),
 });
+
+const reviewWireSchema = z.object({
+	prompt: z.tuple([
+		z.object({ role: z.literal("system"), content: z.string() }),
+		z.object({
+			role: z.literal("user"),
+			content: z.tuple([
+				z.object({ type: z.literal("text"), text: z.string() }),
+			]),
+		}),
+	]),
+});
+const reviewContextSchema = reviewCopySchema.extend({
+	approvedDepartmentQuestions: z.array(z.string()).length(3).nullable(),
+});
+
+function useWorkerSdkTransport(reviewResult = review) {
+	const requests: Request[] = [];
+	generate.mockImplementation(realGenerate);
+	globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({
+		apiKey: "synthetic-test-key-never-sent",
+		fetch: async (url, init) => {
+			requests.push(new Request(url, init));
+			return Response.json({
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(
+							requests.length === 1 ? sequence : reviewResult,
+						),
+					},
+				],
+				finishReason: { unified: "stop", raw: "stop" },
+				usage: {
+					inputTokens: {
+						total: 1000,
+						noCache: 1000,
+						cacheRead: 0,
+						cacheWrite: 0,
+					},
+					outputTokens: { total: 10, text: 10, reasoning: 0 },
+				},
+				providerMetadata: { gateway: { cost: "0.001" } },
+			});
+		},
+	});
+	return requests;
+}
+
+test.each(["department", "named"])(
+	"the worker sends exact %s review context through the real SDK transport",
+	async (kind) => {
+		if (kind === "department") await selectDepartmentForDraftTest();
+		const requests = useWorkerSdkTransport();
+		await draftOutreachSequence();
+		expect(requests).toHaveLength(2);
+		const reviewRequest = requests[1];
+		expect(reviewRequest).toBeDefined();
+		if (!reviewRequest) throw new Error("Expected the review HTTP request");
+		const wire = reviewWireSchema.parse(await reviewRequest.json());
+		const input = reviewContextSchema.parse(
+			JSON.parse(wire.prompt[1].content[0].text),
+		);
+		const instructions = wire.prompt[0].content;
+		const questions =
+			kind === "department"
+				? DEPARTMENT_QUESTIONS
+				: sequence.stages.map((stage) => stage.question);
+		expect(input.approvedDepartmentQuestions).toEqual(
+			kind === "department" ? DEPARTMENT_QUESTIONS : null,
+		);
+		expect(input.stages.map((stage) => stage.question)).toEqual(questions);
+		for (const stage of input.stages) {
+			expect(stage.body.split("\n\n")).toContain(questions[stage.stage]);
+			expect(stage.openingSourceQuote).toBe(quote);
+			expect(stage.questionSourceQuote).toBe(quote);
+		}
+		if (kind === "department") {
+			expect(instructions).toContain(
+				"These routing questions take precedence over generic interest questions in approvedTemplates.",
+			);
+			expect(instructions).toContain(
+				"A routing request does not assert that the reader holds a buyer role or has a need.",
+			);
+			expect(instructions).toContain(
+				"Continue to check dynamic openings, product claims, contact claims and every review flag independently.",
+			);
+		} else {
+			expect(instructions).not.toContain("approvedDepartmentQuestions");
+			expect(createHash("sha256").update(instructions).digest("hex")).toBe(
+				"7887dc0cc8de19f8c473864cd37c5bfcabd511a6cead9be09d0a60647ba30a8a",
+			);
+		}
+		const row = await record();
+		expect(row.emailDraftStatus).toBe("READY");
+		expect(currentDraft(row, DEFAULT_TEMPLATES)?.stages).toEqual(input.stages);
+		expect(await budget()).toMatchObject({
+			calls: 2,
+			actualMicroUsd: 2000,
+			reservedMicroUsd: 2000,
+		});
+	},
+);
+
+test.each(["opening", "question", "intent"])(
+	"approved department review context does not override a false %s review flag",
+	async (field) => {
+		await selectDepartmentForDraftTest();
+		const requests = useWorkerSdkTransport({
+			...review,
+			stages: review.stages.map((stage, index) =>
+				index === 1 ? { ...stage, [field]: false } : stage,
+			),
+		});
+		const writes = spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			await draftOutreachSequence();
+		} finally {
+			writes.mockRestore();
+		}
+		expect(requests).toHaveLength(2);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftReviewedAt: null,
+			emailDraftError: `AI grounding review rejected: stage 1 ${field}. Sending stays held.`,
+		});
+		expect(await budget()).toMatchObject({
+			calls: 2,
+			actualMicroUsd: 2000,
+			reservedMicroUsd: 2000,
+		});
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+	},
+);
 
 test.each(["question", "openingSourceQuote", "questionSourceQuote"])(
 	"department assembly rejects malformed generated %s before replacing owned fields",
@@ -614,6 +756,7 @@ test("department semantic rejection still holds the final assembled copy after q
 });
 
 test("missing or mismatched selected contact prevents paid drafting", async () => {
+	const requests = useWorkerSdkTransport();
 	for (const contactTarget of [
 		undefined,
 		{ ...evidence.contactTarget, email: "other@drafting.example.test" },
@@ -628,6 +771,8 @@ test("missing or mismatched selected contact prevents paid drafting", async () =
 		expect((await record()).emailDrafts).toBeNull();
 	}
 	expect(generate).not.toHaveBeenCalled();
+	expect(requests).toHaveLength(0);
+	expect(fetchSpy).not.toHaveBeenCalled();
 	expect(
 		await db.outreachBudget.findUnique({ where: { id: budgetId } }),
 	).toBeNull();
