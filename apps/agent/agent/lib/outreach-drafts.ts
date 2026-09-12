@@ -213,10 +213,31 @@ export async function draftOutreachSequence() {
 					...(!stage.intent ? [`stage ${index} intent`] : []),
 				]),
 			];
-			if (failures.length)
+			if (failures.length) {
+				const diagnosticText = (value: string) =>
+					value.replace(
+						/https?:\/\/\S+|www\.\S+|[\w.+-]+@[\w.-]+/gi,
+						"[redacted]",
+					);
+				process.stderr.write(
+					`${JSON.stringify({
+						event: "outreach.grounding_rejected",
+						prospectId: prospect.id,
+						inputHash: hash,
+						stages: sequence.stages.map((stage) => ({
+							stage: stage.stage,
+							opening: diagnosticText(stage.opening),
+							question: diagnosticText(stage.question),
+							openingSourceQuote: diagnosticText(stage.openingSourceQuote),
+							questionSourceQuote: diagnosticText(stage.questionSourceQuote),
+						})),
+						review,
+					})}\n`,
+				);
 				throw new DraftValidationError(
 					`AI grounding review rejected: ${failures.join(", ")}. Sending stays held.`,
 				);
+			}
 			const artifact = draftArtifactSchema.parse({
 				version: PERSONALISATION.version,
 				inputHash: hash,

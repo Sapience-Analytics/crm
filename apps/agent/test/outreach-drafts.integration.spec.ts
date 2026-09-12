@@ -421,6 +421,63 @@ test("unrecognized review prose stays hidden instead of entering safe flag diagn
 	expect(row.emailDrafts).toBeNull();
 });
 
+test("grounding rejection logs only bounded validated copy and redacts source contact addresses", async () => {
+	const sourceQuote = `${quote} Contact private@example.test at https://drafting.example.test/private.`;
+	await db.outreachProspect.update({
+		where: { id },
+		data: { evidence: { ...evidence, sourceQuote } },
+	});
+	const rejectedReview = { ...review, grounded: false };
+	const rejectedSequence = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			openingSourceQuote: sourceQuote,
+			questionSourceQuote: sourceQuote,
+		})),
+	};
+	generate.mockImplementation(async (request) => ({
+		text: JSON.stringify(
+			request.phase === "review" ? rejectedReview : rejectedSequence,
+		),
+		costMicroUsd: 3000,
+		finishReason: "stop",
+	}));
+	const writes = spyOn(process.stderr, "write").mockReturnValue(true);
+	try {
+		await draftOutreachSequence();
+		expect(writes).toHaveBeenCalledTimes(1);
+		const output = String(writes.mock.calls[0][0]);
+		const event = JSON.parse(output);
+		expect(Object.keys(event).sort()).toEqual([
+			"event",
+			"inputHash",
+			"prospectId",
+			"review",
+			"stages",
+		]);
+		expect(event).toMatchObject({
+			event: "outreach.grounding_rejected",
+			prospectId: id,
+			review: rejectedReview,
+		});
+		expect(event.stages).toHaveLength(3);
+		expect(event.stages[0].opening).toBe(sequence.stages[0].opening);
+		expect(event.stages[0].question).toBe(sequence.stages[0].question);
+		expect(output).not.toContain("private@example.test");
+		expect(output).not.toContain("https://drafting.example.test/private");
+		expect(output).not.toContain(OUTREACH.sender);
+		expect(output).toContain("[redacted]");
+		expect(output.length).toBeLessThan(8000);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftReviewedAt: null,
+		});
+	} finally {
+		writes.mockRestore();
+	}
+});
+
 test("unsupported claim fails before the second paid review", async () => {
 	generate.mockResolvedValue({
 		text: JSON.stringify({
