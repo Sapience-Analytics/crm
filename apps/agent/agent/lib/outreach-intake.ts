@@ -15,8 +15,10 @@ async function verifyCandidate(id: string, ownerId: string) {
 		where: {
 			id,
 			campaignId: OUTREACH.id,
-			status: "HELD",
-			manual: false,
+			status: { in: ["HELD", "READY", "MANUAL"] },
+			initialSentAt: null,
+			stoppedAt: null,
+			deliveries: { none: {} },
 			evidence: { path: ["verified"], equals: false },
 			sourceVerificationAttempts: { lt: OUTREACH_INTAKE.maxAttempts },
 			sourceVerificationDueAt: { lte: now },
@@ -38,6 +40,8 @@ async function verifyCandidate(id: string, ownerId: string) {
 	const row = await db.outreachProspect.findUniqueOrThrow({ where: { id } });
 	try {
 		const evidence = evidenceSchema.parse(row.evidence);
+		if (row.status !== "HELD" && (!row.companyId || !row.contactId))
+			throw new ProspectBindingError();
 		if (
 			row.domain !== evidence.domain ||
 			row.email !== evidence.email ||
@@ -53,13 +57,19 @@ async function verifyCandidate(id: string, ownerId: string) {
 				current.sourceVerificationLease !== lease ||
 				!current.sourceVerificationLeaseUntil ||
 				current.sourceVerificationLeaseUntil <= new Date() ||
-				current.status !== "HELD" ||
-				current.manual
+				current.status !== row.status ||
+				current.manual !== row.manual ||
+				current.pilotSlot !== row.pilotSlot ||
+				current.initialSentAt ||
+				current.stoppedAt ||
+				(await tx.outreachDelivery.count({ where: { prospectId: id } })) !== 0
 			)
 				return;
 			if (
 				current.domain !== row.domain ||
 				current.email !== row.email ||
+				current.companyId !== row.companyId ||
+				current.contactId !== row.contactId ||
 				JSON.stringify(evidenceSchema.parse(current.evidence)) !==
 					JSON.stringify(evidence)
 			)
@@ -74,13 +84,21 @@ async function verifyCandidate(id: string, ownerId: string) {
 				verified,
 				ownerId,
 			);
+			if (
+				(row.companyId && company?.id !== row.companyId) ||
+				(row.contactId && contact?.id !== row.contactId)
+			)
+				throw new ProspectBindingError();
 			await tx.outreachProspect.update({
 				where: { id },
 				data: {
 					evidence: verified,
 					companyId: company?.id,
 					contactId: contact?.id,
-					stopReason: OUTREACH_INTAKE.verifiedReason,
+					stopReason:
+						row.status === "HELD"
+							? OUTREACH_INTAKE.verifiedReason
+							: OUTREACH_INTAKE.revisionVerifiedReason,
 					sourceVerificationDueAt: null,
 				},
 			});
@@ -90,8 +108,10 @@ async function verifyCandidate(id: string, ownerId: string) {
 			where: {
 				id,
 				sourceVerificationLease: lease,
-				status: "HELD",
-				manual: false,
+				status: row.status,
+				manual: row.manual,
+				initialSentAt: null,
+				stoppedAt: null,
 				evidence: { path: ["verified"], equals: false },
 			},
 			data: {
@@ -129,7 +149,10 @@ export async function runOutreachIntake() {
 	await db.outreachProspect.updateMany({
 		where: {
 			campaignId: campaign.id,
-			status: "HELD",
+			status: { in: ["HELD", "READY", "MANUAL"] },
+			initialSentAt: null,
+			stoppedAt: null,
+			deliveries: { none: {} },
 			evidence: { path: ["verified"], equals: false },
 			sourceVerificationAttempts: { gte: OUTREACH_INTAKE.maxAttempts },
 			sourceVerificationDueAt: { not: null },
@@ -148,8 +171,10 @@ export async function runOutreachIntake() {
 	const candidates = await db.outreachProspect.findMany({
 		where: {
 			campaignId: campaign.id,
-			status: "HELD",
-			manual: false,
+			status: { in: ["HELD", "READY", "MANUAL"] },
+			initialSentAt: null,
+			stoppedAt: null,
+			deliveries: { none: {} },
 			evidence: { path: ["verified"], equals: false },
 			sourceVerificationAttempts: { lt: OUTREACH_INTAKE.maxAttempts },
 			sourceVerificationDueAt: { lte: now },

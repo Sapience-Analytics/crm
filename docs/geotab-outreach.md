@@ -70,6 +70,11 @@ The agent independently verifies the official website and contact evidence, incl
 Transient source failures retry after fifteen minutes, with at most three attempts. Importing the same manifest again does not reset a held record or its verification attempts.
 Qualification remains a separate owner action recording the relevant role, contact basis and absence of restrictions.
 
+Qualified, unsent prospects have a **Revise source quote** control. Paste stronger exact evidence from the same linked source page.
+Saving pauses sending and removes that prospect's draft previews and review. The cloud worker rechecks the quote before new drafting.
+The company, source URL, contact, consent and permanent pilot assignment remain unchanged. Other reviewed prospects retain their drafts.
+An active verification or drafting lease, suppression, or any delivery record blocks revision. Failed source checks remain unsendable.
+
 ## Safety and recovery
 
 Company domains and recipient emails are unique across the campaign. Each prospect has one delivery per sequence stage.

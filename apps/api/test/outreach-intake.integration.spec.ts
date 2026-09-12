@@ -61,6 +61,43 @@ async function importOne() {
 	return db.outreachProspect.findUniqueOrThrow({ where: { id: row.id } });
 }
 
+async function revisedPilot(manual: boolean) {
+	const candidate = await importOne();
+	await runOutreachIntake();
+	checked.length = 0;
+	const row = await db.outreachProspect.findUniqueOrThrow({
+		where: { id: candidate.id },
+	});
+	return db.outreachProspect.update({
+		where: { id: row.id },
+		data: {
+			status: manual ? "MANUAL" : "READY",
+			manual,
+			pilotSlot: manual ? 1 : 3,
+			consent: {
+				kind: "express",
+				evidence:
+					"Requested contact about fleet vehicle reporting and management.",
+				source: "isolated-owner-request",
+				roleRelevant: true,
+				noRestriction: true,
+				verifiedBy: ownerId,
+				verifiedAt: now.toISOString(),
+			},
+			evidence: {
+				...evidenceSchema.parse(row.evidence),
+				sourceQuote:
+					"We maintain safe, reliable and roadworthy delivery vehicles in Perth.",
+				verified: false,
+			},
+			stopReason: OUTREACH_INTAKE.pendingReason,
+			sourceVerificationAttempts: 0,
+			sourceVerificationDueAt: now,
+			emailDraftStatus: "PENDING",
+		},
+	});
+}
+
 beforeAll(async () => {
 	if (
 		(await db.outreachCampaign.count()) ||
@@ -112,6 +149,9 @@ beforeEach(() => {
 afterEach(async () => {
 	for (const restore of restores.splice(0)) restore();
 	if (owned) {
+		await db.outreachDelivery.deleteMany({
+			where: { prospect: { campaignId: OUTREACH.id } },
+		});
 		await db.outreachProspect.deleteMany({
 			where: { campaignId: OUTREACH.id },
 		});
@@ -210,6 +250,120 @@ describe("owner candidate intake", () => {
 });
 
 describe("durable source verification", () => {
+	for (const manual of [true, false])
+		test(`reverifies revised ${manual ? "manual" : "automatic"} evidence without reallocating or changing identity`, async () => {
+			const row = await revisedPilot(manual);
+			await runOutreachIntake();
+			await runOutreachIntake();
+			const result = await db.outreachProspect.findUniqueOrThrow({
+				where: { id: row.id },
+			});
+			expect(checked).toHaveLength(1);
+			expect(evidenceSchema.parse(result.evidence)).toMatchObject({
+				...evidenceSchema.parse(row.evidence),
+				verified: true,
+			});
+			expect(result).toMatchObject({
+				status: row.status,
+				manual,
+				pilotSlot: row.pilotSlot,
+				companyId: row.companyId,
+				contactId: row.contactId,
+				domain: row.domain,
+				email: row.email,
+				consent: row.consent,
+				emailDraftStatus: "PENDING",
+				emailDrafts: null,
+				sourceVerificationDueAt: null,
+				stopReason: OUTREACH_INTAKE.revisionVerifiedReason,
+			});
+		});
+
+	test("failed revised source checks remain unverified and preserve permanent manual allocation", async () => {
+		const row = await revisedPilot(true);
+		sourceMatches = false;
+		await runOutreachIntake();
+		const result = await db.outreachProspect.findUniqueOrThrow({
+			where: { id: row.id },
+		});
+		expect(evidenceSchema.parse(result.evidence).verified).toBe(false);
+		expect(result).toMatchObject({
+			status: "MANUAL",
+			manual: true,
+			pilotSlot: 1,
+			stopReason: OUTREACH_INTAKE.failedReason,
+		});
+		expect(result.sourceVerificationDueAt).not.toBeNull();
+	});
+
+	test("reverification cannot replace a deleted bound contact", async () => {
+		const row = await revisedPilot(true);
+		await db.contact.delete({ where: { id: row.contactId ?? "missing" } });
+		await runOutreachIntake();
+		const result = await db.outreachProspect.findUniqueOrThrow({
+			where: { id: row.id },
+		});
+		expect(evidenceSchema.parse(result.evidence).verified).toBe(false);
+		expect(result.contactId).toBe(row.contactId);
+		expect(result.companyId).toBe(row.companyId);
+		expect(result.stopReason).toBe(OUTREACH_INTAKE.bindingReason);
+		expect(await db.contact.count({ where: { email: row.email } })).toBe(0);
+	});
+
+	for (const change of ["manual", "pilotSlot", "contactId"] as const)
+		test(`revised verification cannot commit after concurrent ${change} drift`, async () => {
+			const row = await revisedPilot(true);
+			onCheck = async () => {
+				await db.outreachProspect.update({
+					where: { id: row.id },
+					data:
+						change === "manual"
+							? { manual: false }
+							: change === "pilotSlot"
+								? { pilotSlot: 2 }
+								: { contactId: "changed-contact" },
+				});
+			};
+			await runOutreachIntake();
+			const result = await db.outreachProspect.findUniqueOrThrow({
+				where: { id: row.id },
+			});
+			expect(evidenceSchema.parse(result.evidence).verified).toBe(false);
+		});
+
+	for (const state of ["stopped", "delivery"] as const)
+		test(`does not reverify ${state} pilot records`, async () => {
+			const row = await revisedPilot(true);
+			if (state === "stopped") {
+				await db.outreachProspect.update({
+					where: { id: row.id },
+					data: { stoppedAt: now },
+				});
+			} else {
+				await db.outreachDelivery.create({
+					data: {
+						prospectId: row.id,
+						stage: 0,
+						rfcMessageId: `${crypto.randomUUID()}@example.test`,
+						subject: "Existing snapshot",
+						body: "Existing snapshot",
+						approvalHash: "isolated-test",
+					},
+				});
+			}
+			await runOutreachIntake();
+			expect(checked).toHaveLength(0);
+			expect(
+				evidenceSchema.parse(
+					(
+						await db.outreachProspect.findUniqueOrThrow({
+							where: { id: row.id },
+						})
+					).evidence,
+				).verified,
+			).toBe(false);
+		});
+
 	test("runs only in production", async () => {
 		const row = await importOne();
 		process.env.VERCEL_ENV = "preview";
