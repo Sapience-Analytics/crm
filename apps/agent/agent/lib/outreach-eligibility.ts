@@ -38,7 +38,13 @@ export async function qualifyRequestedProspect() {
 		where: { id: prospect.id },
 		data: { lastCheckedAt: new Date() },
 	});
-	if (!evidenceSchema.parse(prospect.evidence).verified) return;
+	const evidence = evidenceSchema.parse(prospect.evidence);
+	if (
+		!evidence.verified ||
+		!evidence.contactTarget ||
+		evidence.contactTarget.email !== prospect.email
+	)
+		return;
 	const inbound = await db.emailMessage.findFirst({
 		where: {
 			fromEmail: { equals: prospect.email, mode: "insensitive" },
@@ -77,11 +83,34 @@ export async function qualifyRequestedProspect() {
 	});
 	await db.$transaction(async (tx) => {
 		await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${campaign.id} FOR UPDATE`;
+		await tx.$queryRaw`SELECT id FROM "outreachProspect" WHERE id = ${prospect.id} FOR UPDATE`;
 		const current = await tx.outreachProspect.findUniqueOrThrow({
 			where: { id: prospect.id },
 		});
 		if (
 			current.status !== "HELD" ||
+			current.email !== prospect.email ||
+			current.initialSentAt ||
+			current.stoppedAt ||
+			JSON.stringify(evidenceSchema.parse(current.evidence)) !==
+				JSON.stringify(evidence) ||
+			(await tx.outreachDelivery.count({
+				where: { prospectId: current.id },
+			})) ||
+			(await tx.suppressedContact.findFirst({
+				where: { email: { equals: prospect.email ?? "", mode: "insensitive" } },
+			})) ||
+			(await tx.suppressedDomain.findFirst({
+				where: {
+					domain: {
+						in: [
+							prospect.domain,
+							prospect.email?.split("@")[1] ?? prospect.domain,
+						],
+						mode: "insensitive",
+					},
+				},
+			})) ||
 			(await tx.outreachSuppression.findUnique({
 				where: { email: prospect.email ?? "" },
 			}))
@@ -90,8 +119,12 @@ export async function qualifyRequestedProspect() {
 		const slots = await tx.outreachProspect.count({
 			where: { pilotSlot: { not: null } },
 		});
-		const slot = slots < OUTREACH.pilotSize ? slots + 1 : null;
-		const manual = slot !== null && slot <= OUTREACH.manualSize;
+		const slot =
+			current.pilotSlot ?? (slots < OUTREACH.pilotSize ? slots + 1 : null);
+		const manual =
+			current.pilotSlot !== null
+				? current.manual
+				: slot !== null && slot <= OUTREACH.manualSize;
 		await tx.outreachProspect.update({
 			where: { id: prospect.id },
 			data: {

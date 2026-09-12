@@ -14,6 +14,12 @@ import {
 import { OUTREACH_INTAKE } from "@crm/validation/outreach-intake";
 import { getDomain } from "tldts";
 import {
+	normalizeContactText,
+	verifyContactCandidate,
+	visibleContactText,
+} from "./outreach-contact-source";
+import { decodeCloudflareEmail } from "./outreach-email-source";
+import {
 	fetchResearch,
 	ResearchProviderError,
 	researchRequest,
@@ -31,6 +37,7 @@ function normalize(text: string) {
 		.replace(/&#39;|&apos;/g, "'")
 		.replace(/&quot;/g, '"')
 		.replace(/&nbsp;/g, " ")
+		.replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
 		.replace(/\s+/g, " ")
 		.trim()
 		.toLowerCase();
@@ -46,23 +53,6 @@ function sourceHostMatches(evidence: ProspectEvidence, finalUrl: URL) {
 		companyDomain === domain &&
 		getDomain(host, { allowPrivateDomains: true }) === companyDomain
 	);
-}
-
-export function decodeCloudflareEmail(value: string) {
-	if (
-		value.length < 4 ||
-		value.length > OUTREACH_INTAKE.maxObfuscatedEmailChars ||
-		!/^(?:[a-f0-9]{2})+$/i.test(value)
-	)
-		return null;
-	const bytes = Buffer.from(value, "hex");
-	const key = bytes[0];
-	if (key === undefined) return null;
-	const decoded = Buffer.from(
-		bytes.subarray(1).map((byte) => byte ^ key),
-	).toString("utf8");
-	const email = evidenceSchema.shape.email.safeParse(decoded);
-	return email.success ? email.data : null;
 }
 
 function publishedEmail(text: string, email: string) {
@@ -99,6 +89,22 @@ export function verifyProspectSource(
 		!source.includes(normalize(evidence.waQuote))
 	)
 		return false;
+	if (evidence.contactTarget) {
+		const target = evidence.contactTarget;
+		if (
+			!contactProof ||
+			target.email !== evidence.email ||
+			target.sourceUrl !== evidence.contactSourceUrl ||
+			!verifyContactCandidate(
+				target,
+				evidence.domain,
+				evidence.email,
+				contactProof.text,
+				contactProof.url,
+			)
+		)
+			return false;
+	}
 	if (evidence.contactSourceUrl || evidence.contactRoleQuote)
 		return Boolean(
 			evidence.email &&
@@ -106,8 +112,8 @@ export function verifyProspectSource(
 				evidence.contactRoleQuote &&
 				contactProof &&
 				sourceHostMatches(evidence, contactProof.url) &&
-				normalize(contactProof.text).includes(
-					normalize(evidence.contactRoleQuote),
+				visibleContactText(contactProof.text).includes(
+					normalizeContactText(evidence.contactRoleQuote),
 				) &&
 				publishedEmail(contactProof.text, evidence.email),
 		);
@@ -228,7 +234,7 @@ export async function verifiedProspectBinding(
 	if (!contact)
 		contact = await tx.contact.create({
 			data: {
-				firstName: evidence.email,
+				firstName: evidence.contactTarget?.name ?? evidence.email,
 				email: evidence.email,
 				companyId: company.id,
 				ownerId,
@@ -265,6 +271,7 @@ async function saveProspect(evidence: ProspectEvidence, ownerId: string) {
 				companyId: company?.id,
 				contactId: contact?.id,
 				evidence,
+				contactResearch: evidence.verified ? { create: {} } : undefined,
 				stopReason: evidence.verified
 					? "Contact eligibility needs evidence"
 					: "Primary source verification failed",

@@ -5,15 +5,43 @@ import {
 	renderEmail,
 	type templatesSchema,
 } from "./outreach";
+import { contactTargetSchema } from "./outreach-contact-target";
+
+export const OUTREACH_PRODUCT_CAPABILITIES = [
+	{
+		id: "trips",
+		fact: "Geotab provides vehicle locations and trip history for reviewing vehicle activity.",
+		sourceUrl: "https://www.geotab.com/au/",
+	},
+	{
+		id: "fuel",
+		fact: "Geotab provides fuel-consumption and idling reports where supported vehicle data is available.",
+		sourceUrl:
+			"https://www.geotab.com/au/fleet-management-solutions/fleet-optimisation/",
+	},
+	{
+		id: "maintenance",
+		fact: "Geotab supports maintenance planning, scheduling and reminders, with engine-fault information where supported vehicle data is available.",
+		sourceUrl:
+			"https://www.geotab.com/au/fleet-management-solutions/fleet-maintenance/",
+	},
+] as const;
+
+export const DEPARTMENT_QUESTIONS = [
+	"Could you point me to the person responsible for vehicle tracking or fleet reporting?",
+	"Who would be the right person to speak with about vehicle tracking or fleet reporting?",
+	"Could you point me to the right person, or should I leave it there?",
+] as const;
 
 export const PERSONALISATION = {
-	version: "natural-grounded-v1",
+	version: "contact-grounded-v2",
 	intent:
-		"Ask about fleet needs. Preserve the approved Geotab offer. Never assume a need, fleet size, saving, price or existing product.",
+		"Use a selected verified contact. Ask a named decision-maker one relevant reporting interest question, or ask a department to identify the responsible person. Preserve the approved Geotab offer.",
 	grounding:
-		"Natural opening and question in every stage; exact source references and an independent grounding review are required.",
+		"Ground recipient claims in exact company evidence. Ground product claims separately in approved capabilities. Add one useful capability in the first follow-up; avoid repeated fleet lists and vague fleet-needs wording.",
 	identity:
-		"Preserve the approved sender signature and unsubscribe text. No added links or initial booking link.",
+		"Only the selected verified contact supplies a personal greeting. Preserve the sender signature and unsubscribe text. No unsupported names, needs, quantities, savings, prices, products or added links.",
+	productCapabilities: OUTREACH_PRODUCT_CAPABILITIES,
 } as const;
 
 export const DRAFTING = {
@@ -98,6 +126,31 @@ export const draftViewSchema = z.object({
 
 export class DraftValidationError extends Error {}
 
+export function verifiedDraftTarget(evidence: ProspectEvidence) {
+	const target = contactTargetSchema.safeParse(evidence.contactTarget);
+	if (
+		!target.success ||
+		!evidence.email ||
+		target.data.email !== evidence.email ||
+		new Date(target.data.checkedAt).getTime() > Date.now()
+	)
+		throw new DraftValidationError(
+			"A current verified contact target matching the recipient is required for AI drafts.",
+		);
+	if (
+		target.data.kind === "named" &&
+		(!target.data.name ||
+			!/^[\p{L}\p{M}][\p{L}\p{M}'’ .-]*$/u.test(target.data.name) ||
+			!target.data.associationQuote
+				.toLocaleLowerCase()
+				.includes(target.data.name.toLocaleLowerCase()))
+	)
+		throw new DraftValidationError(
+			"The selected contact name requires matching verified publication evidence.",
+		);
+	return target.data;
+}
+
 function comparableCopy(value: string) {
 	return value
 		.normalize("NFKC")
@@ -115,6 +168,7 @@ export function groundedSequence(
 		throw new DraftValidationError(
 			"Verified source evidence is required for AI drafts.",
 		);
+	const target = verifiedDraftTarget(evidence);
 	if (
 		!templates.signature.includes(OUTREACH.sender) ||
 		!/reply unsubscribe/i.test(templates.signature)
@@ -180,15 +234,15 @@ export function groundedSequence(
 			);
 		if (stage.opening.includes("\n"))
 			throw new DraftValidationError(
-				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Opening contains a line break.`,
+				`${stageLabel}: AI drafts require one opening paragraph and one interest or routing question. Opening contains a line break.`,
 			);
 		if (stage.question.includes("\n"))
 			throw new DraftValidationError(
-				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Question contains a line break.`,
+				`${stageLabel}: AI drafts require one opening paragraph and one interest or routing question. Question contains a line break.`,
 			);
 		if (!stage.question.endsWith("?"))
 			throw new DraftValidationError(
-				`${stageLabel}: AI drafts require one opening paragraph and a fleet-needs question. Question must end with '?'.`,
+				`${stageLabel}: AI drafts require one opening paragraph and one interest or routing question. Question must end with '?'.`,
 			);
 		if (
 			/your website says|ignore .*instructions|system prompt|as an ai/i.test(
@@ -198,9 +252,53 @@ export function groundedSequence(
 			throw new DraftValidationError(
 				`${stageLabel}: AI draft did not produce suitable personalised copy.`,
 			);
+		if (
+			stage.opening.includes("?") ||
+			(stage.question.match(/\?/g) ?? []).length !== 1
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: AI drafts require exactly one question.`,
+			);
+		if (
+			target.kind === "department" &&
+			stage.question !== DEPARTMENT_QUESTIONS[stage.stage]
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: Department emails require the approved routing question.`,
+			);
+		if (
+			stage.stage === 1 &&
+			!/\b(?:trip (?:history|reports?)|fuel (?:use|consumption|reports?)|idling (?:data|reports?)|maintenance (?:planning|scheduling|reminders?)|engine fault(?:s| codes?| information)?)\b/i.test(
+				dynamic,
+			)
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: The first follow-up requires one relevant approved product use case.`,
+			);
+		if (
+			stage.stage === 2 &&
+			!/\b(?:leave it (?:there|here)|stop (?:following up|contacting|emailing))\b/i.test(
+				stage.question,
+			)
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: The final question must offer to stop following up.`,
+			);
+		if (
+			/\b(?:trailers?|doll(?:y|ies|ys))\b/i.test(evidence.sourceQuote) &&
+			!/\b(?:trucks?|prime movers?|motor vehicles?|tankers?)\b/i.test(
+				evidence.sourceQuote,
+			) &&
+			/\b(?:engine|fuel|idling)\b/i.test(dynamic)
+		)
+			throw new DraftValidationError(
+				`${stageLabel}: Trailer-only evidence cannot support engine, fuel or idling use cases.`,
+			);
 		const subject = renderEmail(templates, evidence, stage.stage).subject;
 		const body = [
-			"Hi,",
+			target.kind === "named"
+				? `Hi ${target.name?.split(/\s+/)[0]},`
+				: "Hi team,",
 			stage.opening,
 			...(stage.stage === 0 ? [offer] : []),
 			stage.question,

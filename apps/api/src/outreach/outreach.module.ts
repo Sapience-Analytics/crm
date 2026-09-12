@@ -5,6 +5,8 @@ import { TrpcModule } from "../trpc/trpc.module";
 import { OutreachController } from "./outreach.controller";
 import { OutreachRouter } from "./outreach.router";
 import { OutreachService } from "./outreach.service";
+import { OutreachContactsRouter } from "./outreach-contacts.router";
+import { OutreachContactsService } from "./outreach-contacts.service";
 import { OutreachDispatchService } from "./outreach-dispatch.service";
 import { OutreachGmail } from "./outreach-gmail";
 import { OutreachIntakeRouter } from "./outreach-intake.router";
@@ -21,6 +23,8 @@ import { OutreachLaunchTestsService } from "./outreach-launch-tests.service";
 		OutreachLaunchTestsService,
 		OutreachIntakeService,
 		OutreachIntakeRouter,
+		OutreachContactsService,
+		OutreachContactsRouter,
 	],
 	controllers: [OutreachController],
 })

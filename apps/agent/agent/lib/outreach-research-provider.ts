@@ -1,4 +1,5 @@
 import { OUTREACH, researchResultSchema } from "@crm/validation/outreach";
+import { contactResearchResultSchema } from "@crm/validation/outreach-contact-target";
 import { z } from "zod";
 import { RESEARCH_PROVIDER } from "./outreach-research-config";
 
@@ -24,6 +25,29 @@ const generationSchema = z.object({
 			sourceUrl: z.string(),
 			sourceQuote: z.string(),
 			waQuote: z.string(),
+		}),
+	),
+});
+const contactGenerationSchema = z.object({
+	candidates: z.array(
+		z.object({
+			kind: z.enum(["named", "department"]),
+			name: z.string().nullable(),
+			role: z.enum([
+				"fleet",
+				"transport",
+				"operations",
+				"owner",
+				"managing-director",
+				"branch-manager",
+				"general-manager",
+				"department",
+			]),
+			roleTitle: z.string(),
+			email: z.string().nullable(),
+			sourceUrl: z.string(),
+			associationQuote: z.string(),
+			employmentQuote: z.string(),
 		}),
 	),
 });
@@ -165,8 +189,13 @@ export function estimatedResearchMicroUsd() {
 	);
 }
 
-export function researchRequest(input: string) {
-	const schema = z.toJSONSchema(generationSchema);
+export function researchRequest(
+	input: string,
+	kind: "prospects" | "contacts" = "prospects",
+) {
+	const schema = z.toJSONSchema(
+		kind === "contacts" ? contactGenerationSchema : generationSchema,
+	);
 	delete schema.$schema;
 	const body = JSON.stringify({
 		model: RESEARCH_PROVIDER.model,
@@ -190,7 +219,7 @@ export function researchRequest(input: string) {
 		response_format: {
 			type: "json_schema",
 			json_schema: {
-				name: "geotab_prospects",
+				name: `geotab_${kind}`,
 				schema,
 			},
 		},
@@ -244,7 +273,7 @@ function diagnosticToken(value: string | null | undefined, key: string) {
 		: null;
 }
 
-export async function fetchResearch(
+async function fetchAgentAnswer(
 	body: string,
 	key: string,
 	settle: (actualMicroUsd: number) => Promise<void>,
@@ -374,15 +403,35 @@ export async function fetchResearch(
 				: [],
 		)
 		.join("");
+	return content.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+}
+
+export async function fetchResearch(
+	body: string,
+	key: string,
+	settle: (actualMicroUsd: number) => Promise<void>,
+) {
+	const content = await fetchAgentAnswer(body, key, settle);
 	try {
-		return researchResultSchema.parse(
-			JSON.parse(
-				content.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, ""),
-			),
-		);
+		return researchResultSchema.parse(JSON.parse(content));
 	} catch {
 		throw new ResearchProviderError(
 			"Research provider returned invalid prospect JSON. No prospects saved.",
+		);
+	}
+}
+
+export async function fetchContactResearch(
+	body: string,
+	key: string,
+	settle: (actualMicroUsd: number) => Promise<void>,
+) {
+	const content = await fetchAgentAnswer(body, key, settle);
+	try {
+		return contactResearchResultSchema.parse(JSON.parse(content));
+	} catch {
+		throw new ResearchProviderError(
+			"Research provider returned invalid contact JSON. No candidates saved.",
 		);
 	}
 }

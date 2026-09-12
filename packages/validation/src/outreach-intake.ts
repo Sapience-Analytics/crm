@@ -25,7 +25,7 @@ export const OUTREACH_INTAKE = {
 } as const;
 
 export const intakeCandidateSchema = evidenceSchema
-	.omit({ checkedAt: true, verified: true })
+	.omit({ checkedAt: true, verified: true, contactTarget: true })
 	.extend({
 		domain: evidenceSchema.shape.domain.transform((value) =>
 			value.replace(/^www\./, ""),

@@ -107,6 +107,19 @@ function evidence(index: number) {
 		company: `Test Fleet ${index}`,
 		domain: `fleet-${index}.example.test`,
 		email: `manager@fleet-${index}.example.test`,
+		contactTarget: {
+			id: "a".repeat(64),
+			kind: "named",
+			name: "Alex Example",
+			role: "operations",
+			roleTitle: "Operations Manager",
+			email: `manager@fleet-${index}.example.test`,
+			sourceUrl: `https://fleet-${index}.example.test/contact/`,
+			associationQuote: `Alex Example, Operations Manager, manager@fleet-${index}.example.test`,
+			employmentQuote: `Alex Example is the Operations Manager at Test Fleet ${index}.`,
+			verified: true,
+			checkedAt: now.toISOString(),
+		},
 		industry: "transport",
 		fleetBand: "unknown",
 		fleetEvidence: "Not verified",
@@ -299,7 +312,10 @@ async function prepareDraft(id: string) {
 		{
 			stages: [0, 1, 2].map((stage) => ({
 				stage,
-				opening: "I noticed your delivery operations across Perth.",
+				opening:
+					stage === 1
+						? "For your delivery work, Geotab trip reports show vehicle journeys."
+						: "I noticed your delivery operations across Perth.",
 				question:
 					stage === 2
 						? "Is vehicle visibility useful to discuss for your delivery work, or should I leave it here?"
@@ -400,7 +416,10 @@ describe("outreach durable workflow", () => {
 		});
 		await db.outreachProspect.update({
 			where: { id: blocked.id },
-			data: { emailDraftStatus: "HELD" },
+			data: {
+				emailDraftStatus: "HELD",
+				nextDueAt: new Date(now.getTime() - OUTREACH.minuteMs),
+			},
 		});
 		await dispatcher.run();
 		expect(sent).toHaveBeenCalledTimes(1);
@@ -417,7 +436,10 @@ describe("outreach durable workflow", () => {
 		});
 		await db.outreachProspect.update({
 			where: { id: blocked.id },
-			data: { contactId: null },
+			data: {
+				contactId: null,
+				nextDueAt: new Date(now.getTime() - OUTREACH.minuteMs),
+			},
 		});
 		await dispatcher.run();
 		expect(sent).toHaveBeenCalledTimes(1);
@@ -446,11 +468,16 @@ describe("outreach durable workflow", () => {
 			where: { id: target.contactId },
 			data: { email },
 		});
+		const originalEvidence = evidenceSchema.parse(target.evidence);
 		await db.outreachProspect.update({
 			where: { id: target.id },
 			data: {
 				email,
-				evidence: { ...evidenceSchema.parse(target.evidence), email },
+				evidence: {
+					...originalEvidence,
+					email,
+					contactTarget: { ...originalEvidence.contactTarget, email },
+				},
 			},
 		});
 		await prepareDraft(target.id);

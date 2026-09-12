@@ -42,6 +42,20 @@ const source = evidenceSchema.parse({
 	company: "Regeneration Fleet",
 	domain,
 	email,
+	contactTarget: {
+		id: "a".repeat(64),
+		kind: "named",
+		name: "Alex Example",
+		role: "operations",
+		roleTitle: "Operations Manager",
+		email,
+		sourceUrl: `https://${domain}/contact/`,
+		associationQuote: `Alex Example, Operations Manager, ${email}`,
+		employmentQuote:
+			"Alex Example is the Operations Manager at Regeneration Fleet.",
+		verified: true,
+		checkedAt: now.toISOString(),
+	},
 	industry: "transport",
 	fleetBand: "unknown",
 	fleetEvidence: "unknown",
@@ -169,7 +183,10 @@ async function candidate(manual = false) {
 			{
 				stages: [0, 1, 2].map((stage) => ({
 					stage,
-					opening: "I noticed your delivery operations across Perth.",
+					opening:
+						stage === 1
+							? "For your delivery work, Geotab trip reports show vehicle journeys."
+							: "I noticed your delivery operations across Perth.",
 					question:
 						stage === 2
 							? "Is vehicle visibility useful to discuss for your delivery work, or should I leave it here?"

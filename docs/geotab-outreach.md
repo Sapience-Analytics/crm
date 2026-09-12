@@ -6,7 +6,7 @@ The campaign starts paused. Creating the campaign does not send email or call re
 
 ## Quick use
 
-1. Import sourced candidates or use **Start cloud research**. Wait for official source and contact verification.
+1. Import sourced candidates or use **Start cloud research**. Wait for official fleet source verification. Use each prospect's **Research contacts** control to verify and select a current contact.
 2. Qualify the two prospects you want to email manually first, then the other ten. Qualification records contact eligibility; a public email alone is insufficient.
 3. Leave sending paused while AI prepares the initial email and both follow-ups. Drafts can generate before campaign approval.
 4. Read all three exact previews for each of the twelve prospects, then choose **Record review of all three previews** on each record.
@@ -23,6 +23,15 @@ The Perplexity Agent API finds up to five prospects per request. The weekly targ
 The worker verifies source quotations, WA location text and published email addresses against the company's website.
 Unverified records stay on hold. Vehicle counts stay unknown during discovery. Plant and employee counts never become vehicle counts.
 
+Verified discoveries automatically queue a separate people search. It prioritizes fleet, transport and operations roles, then suitable company leaders.
+The people search shares the existing research ledger and request limits. Pilot contact checks run before unallocated discoveries.
+Named contacts require a current official contact block connecting the name, relevant title and exact published work email.
+Customer testimonials, former employees, historic policies and another organization's role mailbox do not qualify.
+A person and a general footer inbox on the same page do not establish their association.
+Known people without associated email remain research notes. Published department inboxes remain generic routing targets.
+New, unallocated held discoveries can adopt the best verified candidate before a separate source and eligibility check.
+Existing CRM conversations, pilot assignments and selected targets prevent automatic replacement. No search or selection grants consent.
+
 Verified companies and exact published contacts enter CompAI without overwriting existing fields or reassigning existing contacts. Company enrichment is separate from source verification; imported contacts do not trigger paid enrichment.
 Recent unanswered CRM emails explicitly requesting Geotab or fleet-tracking contact establish automatic eligibility.
 Other prospects require documented consent or an assessed inferred-consent basis. Publication alone never enables sending.
@@ -33,7 +42,10 @@ Daily limits are 10 initial messages and 30 total messages, weekdays from 10 am 
 Follow-ups fall 4 and 10 weekdays after the initial send. Public holidays are not excluded.
 No third follow-up exists. An overdue message waits for the next sending window and available daily capacity.
 
-AI writes natural openings and fleet-needs questions for all three stages using verified source facts.
+AI writes short operational openings and questions using verified source facts and the selected contact.
+Named contacts receive a verified name greeting and an interest question. Department inboxes receive a team greeting and one routing question.
+Approved Geotab capabilities are separate product evidence. They do not establish the recipient's vehicle compatibility, problems or savings.
+The first follow-up adds a specific approved use case. Trailer-only evidence does not support recipient engine or fuel claims.
 The preview shows an exact supporting source reference for each opening and question; those references are review evidence, not extra text appended to the email. A separate AI review audits grounding and stage intent.
 Deterministic checks reject unsupported numbers, commercial claims, added links, placeholders and missing sender identification or unsubscribe instructions.
 The approved initial Geotab offer and every signature remain fixed. Generation receives only dynamic slots, stage intent and verified evidence.
@@ -74,6 +86,18 @@ Qualified, unsent prospects have a **Revise source quote** control. Paste strong
 Saving pauses sending and removes that prospect's draft previews and review. The cloud worker rechecks the quote before new drafting.
 The company, source URL, contact, consent and permanent pilot assignment remain unchanged. Other reviewed prospects retain their drafts.
 An active verification or drafting lease, suppression, or any delivery record blocks revision. Failed source checks remain unsendable.
+
+### Contact research and selection
+
+Open **Research contacts for [company]**. Search with Perplexity, or paste up to three sourced candidate objects for cloud verification.
+Owner-supplied candidates use official website checks without a paid model search. They cannot set their own verified status.
+The existing company binding must pass first. Changed-email records with failed contact verification can research replacement candidates.
+Only current completed candidates with published email are selectable. Candidate selection expires after one day; selected evidence does not expire daily.
+Selection pauses sending and clears that prospect's three drafts and preview review. The cloud verifier rechecks all source evidence and bindings.
+Changing email also clears the previous contact eligibility and requires qualification again. Selecting the same email preserves its existing eligibility.
+Both actions preserve the company and permanent pilot/manual assignment. Any delivery, stop, suppression or active lease blocks changes.
+The new contact-grounded drafting policy invalidates previous previews and clears campaign approval on deployment. Stored templates remain unchanged.
+Review new contact targeting, all three exact drafts and the current campaign rules before launch.
 
 ## Safety and recovery
 

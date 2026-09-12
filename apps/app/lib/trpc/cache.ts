@@ -331,6 +331,7 @@ export function useCrmCache(): CrmCache {
 					trpc.outreach.status.queryKey(),
 					trpc.outreach.prospects.pathKey(),
 					trpc.outreach.launchTests.queryKey(),
+					trpc.outreachContacts.status.pathKey(),
 				],
 				[],
 				{},
