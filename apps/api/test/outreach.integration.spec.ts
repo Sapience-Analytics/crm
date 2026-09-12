@@ -33,16 +33,14 @@ import { OutreachDispatchService } from "../src/outreach/outreach-dispatch.servi
 import { OutreachGmail } from "../src/outreach/outreach-gmail";
 
 const userId = `outreach-test-${crypto.randomUUID()}`;
+const companyId = `outreach-test-company-${crypto.randomUUID()}`;
 const budgetId = `outreach-test-budget-${crypto.randomUUID()}`;
 const now = new Date("2026-09-14T03:00:00.000Z");
 const tokens = new MailboxTokenService(db);
 const client = new GmailClient(new MailboxApiClient());
 const gmail = new OutreachGmail(client);
-const writer = new ThreadWriterService(
-	db,
-	Object.create(MailboxMatchService.prototype),
-	new ActivityStampService(db),
-);
+const match: MailboxMatchService = Object.create(MailboxMatchService.prototype);
+const writer = new ThreadWriterService(db, match, new ActivityStampService(db));
 const parser = new GmailSyncService(
 	db,
 	client,
@@ -111,6 +109,9 @@ beforeAll(async () => {
 			emailVerified: true,
 		},
 	});
+	await db.company.create({
+		data: { id: companyId, name: "Outreach Test Company", ownerId: userId },
+	});
 	owned = true;
 });
 
@@ -138,18 +139,20 @@ beforeEach(async () => {
 	const profile = spyOn(gmail, "profile").mockResolvedValue(OUTREACH.sender);
 	const search = spyOn(gmail, "search").mockResolvedValue([]);
 	const thread = spyOn(gmail, "threadIds").mockResolvedValue([]);
-	const message = spyOn(gmail, "message").mockResolvedValue({
-		id: "sent-id",
-		internalDate: String(now.getTime()),
-		labelIds: ["SENT"],
-		payload: {
-			headers: [
-				{ name: "message-id", value: "<sent-id@test>" },
-				{ name: "from", value: OUTREACH.sender },
-				{ name: "to", value: "manager@fleet-3.example.test" },
-			],
-		},
-	});
+	const message = spyOn(gmail, "message").mockImplementation(
+		async (_token, id) => ({
+			id,
+			internalDate: String(now.getTime()),
+			labelIds: ["SENT"],
+			payload: {
+				headers: [
+					{ name: "message-id", value: `<${id}@test>` },
+					{ name: "from", value: OUTREACH.sender },
+					{ name: "to", value: "manager@fleet-3.example.test" },
+				],
+			},
+		}),
+	);
 	sent.mockClear();
 	sent.mockImplementation(async () => ({
 		id: `sent-${crypto.randomUUID()}`,
@@ -162,7 +165,11 @@ beforeEach(async () => {
 		suppressedDomains: new Set(),
 		suppressedEmails: new Set(),
 	});
-	const store = spyOn(writer, "store").mockResolvedValue(true);
+	const resolve = spyOn(match, "resolve").mockResolvedValue({
+		companyId,
+		contactId: null,
+		external: [],
+	});
 	const network = spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("External network is forbidden in outreach integration tests"),
 	);
@@ -175,7 +182,7 @@ beforeEach(async () => {
 		message,
 		send,
 		context,
-		store,
+		resolve,
 		network,
 	])
 		restores.push(() => handle.mockRestore());
@@ -198,10 +205,16 @@ afterEach(async () => {
 		where: { email: { endsWith: ".example.test" }, reason: "SUPPRESSED" },
 	});
 	await db.outreachBudget.deleteMany({ where: { id: budgetId } });
+	await db.emailThread.deleteMany({
+		where: { messages: { some: { syncedByUserId: userId } } },
+	});
 });
 
 afterAll(async () => {
-	if (owned) await db.user.delete({ where: { id: userId } });
+	if (owned) {
+		await db.company.delete({ where: { id: companyId } });
+		await db.user.delete({ where: { id: userId } });
+	}
 	await db.$disconnect();
 });
 
@@ -258,6 +271,64 @@ describe("outreach durable workflow", () => {
 		for (let index = 0; index < 12; index += 1) await dispatcher.run();
 		expect(sent).toHaveBeenCalledTimes(10);
 		expect(await db.outreachDelivery.count({ where: { stage: 0 } })).toBe(10);
+	});
+	test("missing CRM match holds logging and retries without sending again", async () => {
+		await pilot();
+		spyOn(match, "resolve").mockResolvedValue({
+			companyId: null,
+			contactId: null,
+			external: [],
+		});
+		await dispatcher.run();
+		const delivery = await db.outreachDelivery.findFirstOrThrow();
+		expect(delivery.status).toBe("SENT");
+		expect(delivery.loggedAt).toBeNull();
+		expect(
+			await db.emailMessage.count({ where: { syncedByUserId: userId } }),
+		).toBe(0);
+		expect((await service.status(userId)).lastError).toContain(
+			"no CRM message",
+		);
+		await service.action(userId, { action: "pause" });
+		spyOn(match, "resolve").mockResolvedValue({
+			companyId,
+			contactId: null,
+			external: [],
+		});
+		await dispatcher.run();
+		expect(sent).toHaveBeenCalledTimes(1);
+		expect(
+			(
+				await db.outreachDelivery.findUniqueOrThrow({
+					where: { id: delivery.id },
+				})
+			).loggedAt,
+		).not.toBeNull();
+		expect(
+			await db.emailMessage.count({ where: { syncedByUserId: userId } }),
+		).toBe(1);
+	});
+	test("an existing logged CRM message reconciles without a duplicate send", async () => {
+		await pilot();
+		await dispatcher.run();
+		const delivery = await db.outreachDelivery.findFirstOrThrow();
+		await db.outreachDelivery.update({
+			where: { id: delivery.id },
+			data: { loggedAt: null },
+		});
+		await service.action(userId, { action: "pause" });
+		await dispatcher.run();
+		expect(sent).toHaveBeenCalledTimes(1);
+		expect(
+			(
+				await db.outreachDelivery.findUniqueOrThrow({
+					where: { id: delivery.id },
+				})
+			).loggedAt,
+		).not.toBeNull();
+		expect(
+			await db.emailMessage.count({ where: { syncedByUserId: userId } }),
+		).toBe(1);
 	});
 	test("ambiguous sending does not retry", async () => {
 		await pilot();

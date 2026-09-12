@@ -20,10 +20,12 @@ import {
 } from "@crm/ui/components/select";
 import { Textarea } from "@crm/ui/components/textarea";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { parseAsString, useQueryStates } from "nuqs";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
+import { ControlledTests } from "./controlled-tests";
 
 type Templates = {
 	subject: string;
@@ -37,6 +39,10 @@ export function GeotabCampaign() {
 	const trpc = useTRPC();
 	const cache = useCrmCache();
 	const [page, setPage] = useState(0);
+	const [oauth] = useQueryStates({
+		error: parseAsString,
+		error_description: parseAsString,
+	});
 	const status = useQuery({
 		...trpc.outreach.status.queryOptions(),
 		refetchInterval: 30_000,
@@ -143,10 +149,20 @@ export function GeotabCampaign() {
 							Accept pilot and start weekly campaign
 						</Button>
 					</div>
+					{!campaign.sendConnected &&
+						(oauth.error || oauth.error_description) && (
+							<p role="alert">
+								Google connection did not finish. Reconnect Gmail sending and
+								complete the Google permission screen.
+							</p>
+						)}
 					{!campaign.sendConnected && (
 						<Button
 							variant="outline"
 							onClick={async () => {
+								const callback = new URL(window.location.href);
+								callback.searchParams.delete("error");
+								callback.searchParams.delete("error_description");
 								const result = await authClient.linkSocial({
 									provider: "google",
 									scopes: [
@@ -154,8 +170,8 @@ export function GeotabCampaign() {
 										"https://www.googleapis.com/auth/calendar.readonly",
 										"https://www.googleapis.com/auth/gmail.send",
 									],
-									callbackURL: window.location.href,
-									errorCallbackURL: window.location.href,
+									callbackURL: callback.toString(),
+									errorCallbackURL: callback.toString(),
 								});
 								if (result.error)
 									toast.error(
@@ -184,6 +200,7 @@ export function GeotabCampaign() {
 					? "Rules and templates approved"
 					: "Approve these rules and templates"}
 			</Button>
+			<ControlledTests sendConnected={campaign.sendConnected} />
 			<LaunchChecks ready={campaign.ready} />
 			<Card>
 				<CardHeader>
