@@ -10,7 +10,9 @@ import {
 	DEPARTMENT_QUESTIONS,
 	DRAFTING,
 	OUTREACH_PRODUCT_CAPABILITIES,
+	persistedStageSchema,
 } from "@crm/validation/outreach-drafts";
+import { z } from "zod";
 import { gatewayText, outreachAiText } from "../agent/lib/outreach-ai";
 import { draftOutreachSequence } from "../agent/lib/outreach-drafts";
 import { draftOutreachReply } from "../agent/lib/outreach-replies";
@@ -329,6 +331,286 @@ test("department preparation persists the same routing copy that currentDraft va
 		expect(stage.body).toContain(stage.question);
 	}
 	expect(row.emailDrafts).toEqual(draft);
+});
+
+async function selectDepartmentForDraftTest() {
+	const department = evidenceSchema.parse({
+		...evidence,
+		contactTarget: {
+			...evidence.contactTarget,
+			kind: "department",
+			name: null,
+			role: "department",
+			roleTitle: "Operations team",
+			associationQuote: "Operations team fleet@drafting.example.test",
+			employmentQuote: "Operations team fleet@drafting.example.test",
+		},
+	});
+	await db.outreachProspect.update({
+		where: { id },
+		data: { evidence: department },
+	});
+}
+
+const reviewCopySchema = z.object({
+	stages: z.array(persistedStageSchema).length(3),
+});
+
+test.each(["question", "openingSourceQuote", "questionSourceQuote"])(
+	"department assembly rejects malformed generated %s before replacing owned fields",
+	async (field) => {
+		await selectDepartmentForDraftTest();
+		generate.mockResolvedValue({
+			text: JSON.stringify({
+				stages: sequence.stages.map((stage) => ({ ...stage, [field]: null })),
+			}),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		});
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(1);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+			emailDraftError:
+				"AI drafting or validation failed. Drafts stay held; no template fallback occurs.",
+		});
+		expect(await budget()).toMatchObject({
+			calls: 1,
+			actualMicroUsd: 3000,
+			reservedMicroUsd: 3000,
+		});
+	},
+);
+
+test("department generated questions and source placeholders are replaced before review and exact persistence", async () => {
+	await selectDepartmentForDraftTest();
+	const generated = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			question: `Unused generated question for stage ${stage.stage}.`,
+			openingSourceQuote: "Application-bound source reference",
+			questionSourceQuote: "A misquoted description of overseas services.",
+		})),
+	};
+	let reviewedStages: z.infer<typeof persistedStageSchema>[] = [];
+	generate.mockImplementation(async (request) => {
+		if (request.phase === "review") {
+			reviewedStages = reviewCopySchema.parse(
+				JSON.parse(request.prompt),
+			).stages;
+			for (const stage of reviewedStages) {
+				expect(stage.question).toBe(DEPARTMENT_QUESTIONS[stage.stage]);
+				expect(stage.opening).toBe(sequence.stages[stage.stage]?.opening);
+				expect(stage.openingSourceQuote).toBe(quote);
+				expect(stage.questionSourceQuote).toBe(quote);
+				expect(stage.body).toStartWith("Hi team,\n\n");
+				expect(stage.body.split("\n\n")).toContain(
+					DEPARTMENT_QUESTIONS[stage.stage],
+				);
+				expect(stage.body).not.toContain("Unused generated question");
+			}
+		}
+		return {
+			text: JSON.stringify(request.phase === "review" ? review : generated),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	await draftOutreachSequence();
+	const row = await record();
+	const draft = currentDraft(row, DEFAULT_TEMPLATES);
+	expect(reviewedStages).toHaveLength(3);
+	expect(draft?.stages).toEqual(reviewedStages);
+	expect(row.emailDrafts).toEqual(draft);
+	expect(row.emailDraftStatus).toBe("READY");
+	expect(generate).toHaveBeenCalledTimes(2);
+	expect(await budget()).toMatchObject({
+		calls: 2,
+		actualMicroUsd: 6000,
+		reservedMicroUsd: 6000,
+	});
+});
+
+test.each([0, 1, 2])(
+	"department question replacement does not repair a prohibited stage %s opening",
+	async (invalidStage) => {
+		await selectDepartmentForDraftTest();
+		generate.mockResolvedValue({
+			text: JSON.stringify({
+				stages: sequence.stages.map((stage) => ({
+					...stage,
+					opening:
+						stage.stage === invalidStage
+							? "Your vehicles can save $100 every month."
+							: stage.opening,
+					question: "Unused generated question placeholder.",
+					openingSourceQuote: "Application-bound source reference",
+					questionSourceQuote: "Application-bound source reference",
+				})),
+			}),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		});
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(1);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+		});
+		expect((await record()).emailDraftError).toContain(
+			`Stage ${invalidStage}: AI draft includes a prohibited number`,
+		);
+		expect(await budget()).toMatchObject({
+			calls: 1,
+			actualMicroUsd: 3000,
+			reservedMicroUsd: 3000,
+		});
+	},
+);
+
+test("named questions stay unchanged while misquoted source references bind to exact verified evidence", async () => {
+	const generated = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			openingSourceQuote: "The model supplied an inaccurate source excerpt.",
+			questionSourceQuote: "Application-bound source reference",
+		})),
+	};
+	let reviewedStages: z.infer<typeof persistedStageSchema>[] = [];
+	generate.mockImplementation(async (request) => {
+		if (request.phase === "review") {
+			reviewedStages = reviewCopySchema.parse(
+				JSON.parse(request.prompt),
+			).stages;
+			for (const stage of reviewedStages) {
+				expect(stage.question).toBe(sequence.stages[stage.stage]?.question);
+				expect(stage.openingSourceQuote).toBe(quote);
+				expect(stage.questionSourceQuote).toBe(quote);
+				expect(stage.body).toStartWith("Hi Alex,\n\n");
+			}
+		}
+		return {
+			text: JSON.stringify(request.phase === "review" ? review : generated),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	await draftOutreachSequence();
+	expect(reviewedStages).toHaveLength(3);
+	expect(currentDraft(await record(), DEFAULT_TEMPLATES)?.stages).toEqual(
+		reviewedStages,
+	);
+	expect((await record()).emailDraftStatus).toBe("READY");
+	expect(generate).toHaveBeenCalledTimes(2);
+});
+
+test.each([0, 1, 2])(
+	"invalid named stage %s question remains held before semantic review",
+	async (invalidStage) => {
+		generate.mockResolvedValue({
+			text: JSON.stringify({
+				stages: sequence.stages.map((stage) => ({
+					...stage,
+					question:
+						stage.stage === invalidStage
+							? "This generated question has no ending question mark."
+							: stage.question,
+					openingSourceQuote: "Application-bound source reference",
+					questionSourceQuote: "Application-bound source reference",
+				})),
+			}),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		});
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(1);
+		expect(await record()).toMatchObject({
+			emailDraftStatus: "HELD",
+			emailDrafts: null,
+		});
+		expect((await record()).emailDraftError).toContain(
+			`Stage ${invalidStage}:`,
+		);
+		expect((await record()).emailDraftError).toContain(
+			"Question must end with '?'",
+		);
+		expect(await budget()).toMatchObject({
+			calls: 1,
+			actualMicroUsd: 3000,
+			reservedMicroUsd: 3000,
+		});
+	},
+);
+
+test("department semantic rejection still holds the final assembled copy after question and source binding", async () => {
+	await selectDepartmentForDraftTest();
+	const unsupportedOpening =
+		"Draft Test operates trucks in distant overseas markets.";
+	const generated = {
+		stages: sequence.stages.map((stage) => ({
+			...stage,
+			opening: stage.stage === 0 ? unsupportedOpening : stage.opening,
+			question: "Unused generated question placeholder.",
+			openingSourceQuote: "Application-bound source reference",
+			questionSourceQuote: "Application-bound source reference",
+		})),
+	};
+	const rejectedReview = {
+		...review,
+		grounded: false,
+		noUnsupportedClaims: false,
+		stages: review.stages.map((stage, index) =>
+			index === 0 ? { ...stage, opening: false } : stage,
+		),
+	};
+	let reviewedStages: z.infer<typeof persistedStageSchema>[] = [];
+	generate.mockImplementation(async (request) => {
+		if (request.phase === "review") {
+			reviewedStages = reviewCopySchema.parse(
+				JSON.parse(request.prompt),
+			).stages;
+			expect(reviewedStages[0]?.body).toContain(unsupportedOpening);
+			for (const stage of reviewedStages) {
+				expect(stage.question).toBe(DEPARTMENT_QUESTIONS[stage.stage]);
+				expect(stage.body).toContain(stage.question);
+				expect(stage.body).not.toContain("Unused generated question");
+				expect(stage.openingSourceQuote).toBe(quote);
+				expect(stage.questionSourceQuote).toBe(quote);
+			}
+		}
+		return {
+			text: JSON.stringify(
+				request.phase === "review" ? rejectedReview : generated,
+			),
+			costMicroUsd: 3000,
+			finishReason: "stop",
+		};
+	});
+	const writes = spyOn(process.stderr, "write").mockReturnValue(true);
+	try {
+		await draftOutreachSequence();
+	} finally {
+		writes.mockRestore();
+	}
+	expect(reviewedStages).toHaveLength(3);
+	expect(generate).toHaveBeenCalledTimes(2);
+	expect(await record()).toMatchObject({
+		emailDraftStatus: "HELD",
+		emailDrafts: null,
+		emailDraftReviewedAt: null,
+	});
+	expect((await record()).emailDraftError).toBe(
+		"AI grounding review rejected: source grounding, unsupported claims, stage 0 opening. Sending stays held.",
+	);
+	expect(await budget()).toMatchObject({
+		calls: 2,
+		actualMicroUsd: 6000,
+		reservedMicroUsd: 6000,
+	});
+	expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+		0,
+	);
 });
 
 test("missing or mismatched selected contact prevents paid drafting", async () => {
