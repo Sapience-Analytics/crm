@@ -11,6 +11,7 @@ import { runOutreachContactResearch } from "../lib/outreach-contact-research";
 import { draftOutreachSequence } from "../lib/outreach-drafts";
 import { qualifyRequestedProspect } from "../lib/outreach-eligibility";
 import { runOutreachIntake } from "../lib/outreach-intake";
+import { runOutreachReferrals } from "../lib/outreach-referrals";
 import { draftOutreachReply } from "../lib/outreach-replies";
 import { runOutreachResearch } from "../lib/outreach-research";
 import { reconcileStaleTasks } from "../lib/stale-tasks";
@@ -26,6 +27,7 @@ export default defineSchedule({
 				runOutreachResearch(),
 				runOutreachContactResearch(),
 				draftOutreachReply(),
+				runOutreachReferrals(),
 				sweepBlankFacts(),
 
 				(async () => {

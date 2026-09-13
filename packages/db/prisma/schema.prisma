@@ -371,12 +371,21 @@ model OutreachProspect {
   id String @id @default(cuid())
   campaignId String
   campaign OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  domain String @unique
+  domain String
   email String? @unique
+  referredFromId String? @unique
+  referralParent OutreachProspect? @relation("OutreachReferralChain", fields: [referredFromId], references: [id], onDelete: Restrict)
+  referralChild OutreachProspect? @relation("OutreachReferralChain")
+  referralDepth Int @default(0)
   companyId String?
   contactId String?
   evidence Json
   consent Json?
+  eligibilityDueAt DateTime? @default(now())
+  eligibilityLease String?
+  eligibilityLeaseUntil DateTime?
+  eligibilityError String?
+  eligibilityAssessment Json?
   status String @default("HELD")
   manual Boolean @default(false)
   pilotSlot Int? @unique
@@ -386,6 +395,7 @@ model OutreachProspect {
   lastCheckedAt DateTime?
   stopReason String?
   replyText String?
+  replyReceivedAt DateTime?
   replyDraft String?
   replyDraftLeaseUntil DateTime?
   replyDraftDueAt DateTime @default(now())
@@ -412,8 +422,45 @@ model OutreachProspect {
   @@index([emailDraftStatus, emailDraftDueAt])
   deliveries OutreachDelivery[]
   contactResearch OutreachContactResearch?
+  referrals OutreachReferral[]
+  inboundMessages OutreachInbound[]
+  @@index([eligibilityDueAt])
+  @@unique([domain], map: "outreachProspect_domain_key", where: { referredFromId: null })
   @@index([campaignId, status, nextDueAt])
   @@map("outreachProspect")
+}
+
+model OutreachInbound {
+  id String @id @default(cuid())
+  prospectId String
+  prospect OutreachProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  messageId String
+  message Json
+  classification String
+  createdAt DateTime @default(now())
+  @@unique([prospectId, messageId])
+  @@map("outreachInbound")
+}
+
+model OutreachReferral {
+  id String @id @default(cuid())
+  prospectId String
+  prospect OutreachProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  messageId String
+  message Json
+  status String @default("PENDING")
+  dueAt DateTime @default(now())
+  attempts Int @default(0)
+  lease String?
+  leaseUntil DateTime?
+  decision Json?
+  error String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([prospectId, messageId])
+  @@index([status, dueAt])
+  @@map("outreachReferral")
 }
 
 model OutreachContactResearch {

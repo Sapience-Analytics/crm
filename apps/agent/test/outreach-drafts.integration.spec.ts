@@ -250,6 +250,7 @@ test("generation separates verified recipient, selected contact and approved pro
 		});
 		expect(input.verifiedSourceQuote).toBe(quote);
 		if (request.phase === "generation") {
+			expect(input.approvedSubject).toBe("Fleet needs at Draft Test");
 			expect(input.approvedTemplates).toBeUndefined();
 			expect(input.policy).toBeUndefined();
 			expect(input.departmentQuestions).toBeNull();
@@ -304,6 +305,112 @@ test("generation separates verified recipient, selected contact and approved pro
 	expect((await record()).emailDraftStatus).toBe("READY");
 	expect(generate).toHaveBeenCalledTimes(2);
 });
+
+for (const kind of ["named", "department"] as const) {
+	test(`personalises every ${kind} stage around the current source and preserves the approved subject`, async () => {
+		const currentQuote =
+			"Draft Test operates refrigerated trucks for chilled freight deliveries in Western Australia.";
+		const currentEvidence = evidenceSchema.parse({
+			...evidence,
+			sourceQuote: currentQuote,
+			contactTarget: {
+				...evidence.contactTarget,
+				kind,
+				name: kind === "named" ? "Alex Example" : null,
+				role: kind === "named" ? "operations" : "department",
+				roleTitle: kind === "named" ? "Operations Manager" : "Operations team",
+			},
+		});
+		const templates = {
+			...DEFAULT_TEMPLATES,
+			subject: "Trip reporting at {{company}}",
+		};
+		await db.outreachCampaign.update({
+			where: { id: OUTREACH.id },
+			data: { templates },
+		});
+		await db.outreachProspect.update({
+			where: { id },
+			data: { evidence: currentEvidence },
+		});
+		const openings = [
+			"I noticed Draft Test operates refrigerated trucks for chilled freight deliveries.",
+			"For Draft Test's chilled freight deliveries, Geotab trip history shows vehicle journeys.",
+			"A final note about trip reports for Draft Test's chilled freight deliveries.",
+		];
+		const questions = [
+			"Would trip reporting for chilled freight deliveries be of interest?",
+			"Would an example of trip reports for chilled freight deliveries be useful?",
+			"Is trip reporting for chilled freight deliveries of interest, or should I leave it there?",
+		];
+		const generated = {
+			stages: openings.map((opening, stage) => ({
+				stage,
+				opening,
+				question:
+					kind === "named"
+						? questions[stage]
+						: "Application-owned routing question",
+				openingSourceQuote: "Application-bound source reference",
+				questionSourceQuote: "Application-bound source reference",
+			})),
+		};
+		generate.mockImplementation(async (request) => {
+			const input = JSON.parse(request.prompt);
+			expect(input.verifiedSourceQuote).toBe(currentQuote);
+			expect(input.selectedContact.kind).toBe(kind);
+			if (request.phase === "generation") {
+				expect(input.approvedSubject).toBe("Trip reporting at Draft Test");
+				expect(input.sequenceGuidance.continuity).toContain(
+					"one specific operation from verifiedSourceQuote",
+				);
+				expect(input.sequenceGuidance.questions).toContain(
+					kind === "named"
+						? "Do not demand a meeting"
+						: "Do not treat a team inbox as a verified decision-maker",
+				);
+			} else {
+				expect(input.approvedTemplates).toEqual(templates);
+				for (const [stage, draft] of input.stages.entries()) {
+					expect(draft.subject).toBe("Trip reporting at Draft Test");
+					expect(draft.opening).toBe(openings[stage]);
+					expect(draft.question).toBe(
+						kind === "named" ? questions[stage] : DEPARTMENT_QUESTIONS[stage],
+					);
+					expect(draft.openingSourceQuote).toBe(currentQuote);
+					expect(draft.questionSourceQuote).toBe(currentQuote);
+				}
+			}
+			return {
+				text: JSON.stringify(request.phase === "review" ? review : generated),
+				costMicroUsd: 3000,
+				reviewRouteVerified: true,
+				finishReason: "stop",
+			};
+		});
+		await draftOutreachSequence();
+		const row = await record();
+		const draft = currentDraft(row, templates);
+		expect(draft?.stages).toHaveLength(3);
+		for (const [stage, email] of (draft?.stages ?? []).entries()) {
+			expect(email.subject).toBe("Trip reporting at Draft Test");
+			expect(email.body).toStartWith(
+				kind === "named" ? "Hi Alex," : "Hi team,",
+			);
+			expect(email.body).toContain(openings[stage]);
+			expect(email.body).toContain(
+				kind === "named" ? questions[stage] : DEPARTMENT_QUESTIONS[stage],
+			);
+			expect(email.body).toEndWith(templates.signature);
+		}
+		expect(row.emailDraftReviewedAt).toBeNull();
+		expect(row.initialSentAt).toBeNull();
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+	});
+}
 
 test("department preparation persists the same routing copy that currentDraft validates", async () => {
 	const department = evidenceSchema.parse({

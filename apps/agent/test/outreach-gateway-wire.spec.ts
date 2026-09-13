@@ -31,7 +31,7 @@ afterEach(() => {
 	globalThis.AI_SDK_DEFAULT_PROVIDER = originalProvider;
 });
 
-for (const phase of ["generation", "review", "reply"] as const)
+for (const phase of ["generation", "review", "reply", "referral"] as const)
 	test(`the real SDK serializes all ${phase} instructions into the Gateway HTTP request`, async () => {
 		const instructions = `${phase}: preserve the supplied instructions exactly. ${"Synthetic grounding and safety rule. ".repeat(100)}`;
 		const prompt = JSON.stringify({

@@ -5,6 +5,7 @@ import {
 	contactEligible,
 	evidenceSchema,
 	OUTREACH,
+	renderEmail,
 	templatesSchema,
 } from "@crm/validation/outreach";
 import {
@@ -138,6 +139,7 @@ export async function draftOutreachSequence() {
 			const prompt = JSON.stringify({
 				company: evidence.data.company,
 				verifiedSourceQuote: evidence.data.sourceQuote,
+				approvedSubject: renderEmail(templates, evidence.data, 0).subject,
 				selectedContact: {
 					kind: target.kind,
 					name: target.name,
@@ -152,10 +154,22 @@ export async function draftOutreachSequence() {
 					"questionSourceQuote: unused placeholder Application-bound source reference",
 				],
 				stageIntents: [
-					"One short verified operational observation. Named target: one short question about interest in relevant trip reporting or maintenance. Code inserts the department routing question.",
-					"Add one relevant approved Geotab use case using the literal phrase trip reports, trip history or maintenance reminders, rather than repeat vehicle lists or vague fleet needs. Named target: one interest question. Code inserts the department routing question.",
-					"Brief final reminder of relevance. Named target: one question that offers to leave it there. Code inserts the department closing question. Do not repeat the fleet list.",
+					"Name one verified company operation in a short observation. Named target: ask about interest in reporting relevant to that operation. Code inserts the department routing question.",
+					"Explain one relevant approved Geotab use case using the literal phrase trip reports, trip history or maintenance reminders. Connect that capability to the same sourced operation. Named target: ask about that specific use case. Code inserts the department routing question.",
+					"Recall the sourced operation and chosen capability briefly, without repeating the explanation or vehicle list. Named target: ask about that topic and offer to leave it there. Code inserts the department closing question.",
 				],
+				sequenceGuidance: {
+					continuity:
+						"Choose one specific operation from verifiedSourceQuote and one related approved capability. Keep that connection across all stages. Use fresh wording and a different purpose at each stage.",
+					relevance:
+						"Describe what Geotab reports show or what maintenance reminders support. Do not turn a possible use case into an existing problem, desired improvement or promised result.",
+					questions:
+						target.kind === "named"
+							? "Keep each interest question on the chosen operation and capability. Ask whether that information interests the reader. Do not demand a meeting, ask for fleet data or assume purchasing authority."
+							: "Personalise every opening to the company operation. The application inserts the approved routing questions. Do not treat a team inbox as a verified decision-maker.",
+					subject:
+						"The application preserves approvedSubject for the sequence. Keep the copy consistent with it. The subject supplies context, not recipient evidence. Do not generate a replacement subject.",
+				},
 				departmentQuestions:
 					target.kind === "department" ? DEPARTMENT_QUESTIONS : null,
 				applicationOwnedAssembly: {

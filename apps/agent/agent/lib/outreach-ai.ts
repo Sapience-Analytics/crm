@@ -112,7 +112,7 @@ export function catalogPrice(
 }
 
 type TextRequest = {
-	phase: "generation" | "review" | "reply";
+	phase: "generation" | "review" | "reply" | "referral";
 	instructions: string;
 	prompt: string;
 	maxOutputTokens: number;

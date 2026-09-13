@@ -317,7 +317,11 @@ export async function runOutreachResearch() {
 			throw new Error("Connect a Perplexity API key to enable cloud research.");
 		const start = weekStart(now);
 		const count = await db.outreachProspect.count({
-			where: { campaignId: campaign.id, createdAt: { gte: start } },
+			where: {
+				campaignId: campaign.id,
+				referredFromId: null,
+				createdAt: { gte: start },
+			},
 		});
 		if (count >= OUTREACH.weeklyTarget) {
 			await db.outreachCampaign.updateMany({
@@ -327,6 +331,7 @@ export async function runOutreachResearch() {
 			return;
 		}
 		const previous = await db.outreachProspect.findMany({
+			where: { referredFromId: null },
 			orderBy: { createdAt: "desc" },
 			take: 80,
 			select: { domain: true },

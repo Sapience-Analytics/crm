@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./outreach-referrals": "./src/outreach-referrals.ts",
 		"./outreach-contacts": "./src/outreach-contacts.ts",
 		"./outreach-contact-target": "./src/outreach-contact-target.ts",
 		"./outreach-contact-state": "./src/outreach-contact-state.ts",

@@ -242,13 +242,19 @@ afterEach(async () => {
 	await db.outreachDelivery.deleteMany({
 		where: { prospect: { campaignId: OUTREACH.id } },
 	});
+	await db.outreachProspect.deleteMany({
+		where: { campaignId: OUTREACH.id, referredFromId: { not: null } },
+	});
 	await db.outreachProspect.deleteMany({ where: { campaignId: OUTREACH.id } });
 	await db.outreachReport.deleteMany({ where: { campaignId: OUTREACH.id } });
 	await db.outreachCampaign.deleteMany({
 		where: { id: OUTREACH.id, ownerId: userId },
 	});
 	await db.outreachSuppression.deleteMany({
-		where: { email: { endsWith: ".example.test" }, reason: "SUPPRESSED" },
+		where: {
+			email: { endsWith: ".example.test" },
+			reason: { in: ["SUPPRESSED", "Stopped by campaign owner"] },
+		},
 	});
 	await db.outreachBudget.deleteMany({ where: { id: budgetId } });
 	await db.emailThread.deleteMany({
@@ -348,6 +354,152 @@ async function prepareDraft(id: string) {
 }
 
 describe("outreach durable workflow", () => {
+	test("pilot expands only after the observation period and fresh checks while manual rows stay manual", async () => {
+		await pilot();
+		for (let index = 0; index < 10; index += 1) await dispatcher.run();
+		expect(sent).toHaveBeenCalledTimes(10);
+		await dispatcher.run();
+		expect((await service.status(userId)).status).toBe("PILOT");
+		const nextDay = new Date(now.getTime() + OUTREACH.dayMs);
+		const terminal = await db.outreachProspect.findMany({
+			where: { manual: false },
+			take: 2,
+		});
+		for (const [index, row] of terminal.entries()) {
+			await db.outreachProspect.update({
+				where: { id: row.id },
+				data: { status: index === 0 ? "BOOKED" : "SUPPRESSED", stoppedAt: now },
+			});
+		}
+		setSystemTime(nextDay);
+		await db.mailboxSync.update({
+			where: { userId_source: { userId, source: "calendar" } },
+			data: { lastSyncedAt: nextDay },
+		});
+		await dispatcher.run();
+		expect((await service.status(userId)).status).toBe("PILOT");
+		await dispatcher.run();
+		expect((await service.status(userId)).status).toBe("ACTIVE");
+		expect(
+			await db.outreachProspect.count({
+				where: { manual: true, status: "MANUAL" },
+			}),
+		).toBe(2);
+		expect(sent).toHaveBeenCalledTimes(10);
+	});
+
+	test("a pilot bounce pauses expansion", async () => {
+		await pilot();
+		const prospect = await db.outreachProspect.findFirstOrThrow({
+			where: { manual: false },
+		});
+		await db.outreachProspect.update({
+			where: { id: prospect.id },
+			data: { status: "BOUNCED", stoppedAt: now },
+		});
+		await dispatcher.run();
+		expect((await service.status(userId)).status).toBe("PAUSED");
+		expect((await service.status(userId)).lastError).toContain("bounced");
+		expect(sent).not.toHaveBeenCalled();
+	});
+
+	test("records a referral once and catches a later opt-out after the sequence stops", async () => {
+		await pilot();
+		await dispatcher.run();
+		await service.action(userId, { action: "pause" });
+		const delivery = await db.outreachDelivery.findFirstOrThrow();
+		const parent = await db.outreachProspect.findUniqueOrThrow({
+			where: { id: delivery.prospectId },
+		});
+		const domain = parent.email?.split("@")[1];
+		const putReply = (id: string, body: string, elapsed: number) => {
+			messages.set(id, {
+				id,
+				threadId: delivery.gmailThreadId ?? undefined,
+				internalDate: String(now.getTime() + elapsed),
+				labelIds: ["INBOX"],
+				payload: {
+					mimeType: "text/plain",
+					headers: [
+						{ name: "From", value: parent.email ?? "" },
+						{ name: "To", value: OUTREACH.sender },
+						{ name: "Message-ID", value: `<${id}@${domain}>` },
+						{
+							name: "Authentication-Results",
+							value: `mx.google.com; dmarc=pass header.from=${domain}`,
+						},
+					],
+					body: { data: Buffer.from(body).toString("base64url") },
+				},
+			});
+		};
+		putReply("referral-one", `Please contact Alex at alex@${domain}`, 0);
+		spyOn(gmail, "threadIds").mockResolvedValue([{ id: "referral-one" }]);
+		await dispatcher.run();
+		await dispatcher.run();
+		expect(
+			await db.outreachInbound.count({ where: { prospectId: parent.id } }),
+		).toBe(1);
+		expect(
+			await db.outreachReferral.count({ where: { prospectId: parent.id } }),
+		).toBe(1);
+		expect(
+			(
+				await db.outreachProspect.findUniqueOrThrow({
+					where: { id: parent.id },
+				})
+			).status,
+		).toBe("REPLIED");
+		putReply("referral-optout", "Unsubscribe our company", OUTREACH.minuteMs);
+		spyOn(gmail, "threadIds").mockResolvedValue([
+			{ id: "referral-one" },
+			{ id: "referral-optout" },
+		]);
+		setSystemTime(new Date(now.getTime() + OUTREACH.minuteMs));
+		await dispatcher.run();
+		expect(
+			(
+				await db.outreachProspect.findUniqueOrThrow({
+					where: { id: parent.id },
+				})
+			).status,
+		).toBe("SUPPRESSED");
+		expect(
+			await db.outreachInbound.count({ where: { prospectId: parent.id } }),
+		).toBe(2);
+		expect(sent).toHaveBeenCalledTimes(1);
+	});
+
+	test("same-company referral rows preserve the original and stop together", async () => {
+		await pilot();
+		const parent = await db.outreachProspect.findFirstOrThrow({
+			where: { manual: false },
+		});
+		const child = await db.outreachProspect.create({
+			data: {
+				campaignId: parent.campaignId,
+				domain: parent.domain,
+				email: `referred@${parent.domain}`,
+				evidence: evidenceSchema.parse(parent.evidence),
+				referredFromId: parent.id,
+				referralDepth: 1,
+			},
+		});
+		await service.stop(userId, parent.id);
+		expect(
+			(await db.outreachProspect.findUniqueOrThrow({ where: { id: child.id } }))
+				.status,
+		).toBe("SUPPRESSED");
+		expect(
+			(
+				await db.outreachProspect.findUniqueOrThrow({
+					where: { id: parent.id },
+				})
+			).email,
+		).toBe(parent.email);
+		await db.outreachProspect.delete({ where: { id: child.id } });
+	});
+
 	test("owner-only draft review records the exact three-stage artifact and rejects stale copy", async () => {
 		await pilot();
 		const row = await db.outreachProspect.findFirstOrThrow({
