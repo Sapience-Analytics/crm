@@ -41,6 +41,7 @@ Every sequence uses verified company facts and the selected contact's published 
 The introduction links one relevant operation to an approved Geotab capability.
 The first follow-up adds a practical use case.
 The final follow-up asks a short relevance question and offers to close the conversation.
+The service supplies a missing stop choice in the final named-contact question before validation and independent review.
 Named contacts receive an interest question.
 Department contacts receive the approved request for the responsible person.
 
