@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_TEMPLATES, evidenceSchema, OUTREACH } from "../src/outreach";
 import {
+	assembleClosingQuestion,
 	DEPARTMENT_QUESTIONS,
 	DraftValidationError,
 	draftArtifactSchema,
@@ -80,6 +81,44 @@ function validationMessage(generated: ReturnType<typeof sequence>) {
 	}
 	throw new Error("The invalid sequence unexpectedly passed validation");
 }
+
+describe("final named-contact stop choice", () => {
+	test.each([
+		"leave it there",
+		"leave it here",
+		"stop following up",
+		"stop contacting",
+		"stop emailing",
+	])("preserves the recognised %s option byte-for-byte", (choice) => {
+		const question = `Do trip reports interest you, or should I ${choice}?`;
+		expect(assembleClosingQuestion({ stage: 2, question }, "named")).toBe(
+			question,
+		);
+	});
+
+	test.each([
+		{ stage: 0, kind: "named" as const },
+		{ stage: 1, kind: "named" as const },
+		{ stage: 2, kind: "department" as const },
+	])("preserves stage $stage for $kind contacts", ({ stage, kind }) => {
+		const question = "Would trip reports interest you for that haulage work?";
+		expect(assembleClosingQuestion({ stage, question }, kind)).toBe(question);
+	});
+
+	test.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])(
+		"rejects line terminator %j in opening and final question",
+		(line) => {
+			for (const field of ["opening", "question"] as const) {
+				const generated = sequence();
+				const final = generated.stages[2];
+				if (!final) throw new Error("Missing final fixture");
+				final[field] = final[field].replace(" ", line);
+				expect(assembleClosingQuestion(final, "named")).toBe(final.question);
+				expect(validationMessage(generated)).toContain("contains a line break");
+			}
+		},
+	);
+});
 
 describe("grounded personalised sequence", () => {
 	test("uses only the selected name for the deterministic greeting", () => {

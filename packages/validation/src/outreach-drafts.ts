@@ -132,6 +132,33 @@ export const draftViewSchema = z.object({
 
 export class DraftValidationError extends Error {}
 
+function hasStopOption(question: string) {
+	return /\b(?:leave it (?:there|here)|stop (?:following up|contacting|emailing))\b/i.test(
+		question,
+	);
+}
+
+function isMultiline(value: string) {
+	return /[\r\n\u2028\u2029]/.test(value);
+}
+
+export function assembleClosingQuestion(
+	stage: Pick<z.infer<typeof generatedStage>, "stage" | "question">,
+	kind: z.infer<typeof contactTargetSchema>["kind"],
+) {
+	const { question } = stage;
+	if (
+		kind !== "named" ||
+		stage.stage !== 2 ||
+		isMultiline(question) ||
+		(question.match(/\?/g) ?? []).length !== 1 ||
+		!question.endsWith("?") ||
+		hasStopOption(question)
+	)
+		return question;
+	return `${question.slice(0, -1)}, or should I leave it there?`;
+}
+
 export function verifiedDraftTarget(evidence: ProspectEvidence) {
 	const target = contactTargetSchema.safeParse(evidence.contactTarget);
 	if (
@@ -238,11 +265,11 @@ export function groundedSequence(
 			throw new DraftValidationError(
 				`${stageLabel}: AI draft includes an unsupported fleet quantity.`,
 			);
-		if (stage.opening.includes("\n"))
+		if (isMultiline(stage.opening))
 			throw new DraftValidationError(
 				`${stageLabel}: AI drafts require one opening paragraph and one interest or routing question. Opening contains a line break.`,
 			);
-		if (stage.question.includes("\n"))
+		if (isMultiline(stage.question))
 			throw new DraftValidationError(
 				`${stageLabel}: AI drafts require one opening paragraph and one interest or routing question. Question contains a line break.`,
 			);
@@ -281,12 +308,7 @@ export function groundedSequence(
 			throw new DraftValidationError(
 				`${stageLabel}: The first follow-up requires one relevant approved product use case.`,
 			);
-		if (
-			stage.stage === 2 &&
-			!/\b(?:leave it (?:there|here)|stop (?:following up|contacting|emailing))\b/i.test(
-				stage.question,
-			)
-		)
+		if (stage.stage === 2 && !hasStopOption(stage.question))
 			throw new DraftValidationError(
 				`${stageLabel}: The final question must offer to stop following up.`,
 			);

@@ -842,6 +842,138 @@ test("department generated questions and source placeholders are replaced before
 	});
 });
 
+test.each([
+	{
+		label: "valid capability question",
+		question:
+			"Would trip reports interest you for Draft Test's bulk haulage work?",
+		accepted: true,
+	},
+	{
+		label: "unsupported operation inside the question",
+		question: "Would trip reports help manage Draft Test's overseas depots?",
+		accepted: false,
+	},
+])(
+	"assembled stop choice reaches independent review for $label",
+	async (fixture) => {
+		const expectedQuestion = `${fixture.question.slice(0, -1)}, or should I leave it there?`;
+		const generated = {
+			stages: sequence.stages.map((stage) => ({
+				...stage,
+				question: stage.stage === 2 ? fixture.question : stage.question,
+			})),
+		};
+		const checkedReview = {
+			...review,
+			grounded: fixture.accepted,
+			noUnsupportedClaims: fixture.accepted,
+			stages: review.stages.map((stage, index) =>
+				index === 2 ? { ...stage, question: fixture.accepted } : stage,
+			),
+		};
+		let reviewedStages: z.infer<typeof persistedStageSchema>[] = [];
+		generate.mockImplementation(async (request) => {
+			if (request.phase === "review") {
+				reviewedStages = reviewCopySchema.parse(
+					JSON.parse(request.prompt),
+				).stages;
+				expect(reviewedStages[2]?.question).toBe(expectedQuestion);
+				expect(reviewedStages[2]?.body.split("\n\n")).toContain(
+					expectedQuestion,
+				);
+				expect(reviewedStages[2]?.questionSourceQuote).toBe(quote);
+				for (const index of [0, 1])
+					expect(reviewedStages[index]?.question).toBe(
+						sequence.stages[index]?.question,
+					);
+			}
+			return {
+				text: JSON.stringify(
+					request.phase === "review" ? checkedReview : generated,
+				),
+				costMicroUsd: 3000,
+				reviewRouteVerified: true,
+				finishReason: "stop",
+			};
+		});
+		const writes = spyOn(process.stderr, "write").mockReturnValue(true);
+		try {
+			await draftOutreachSequence();
+		} finally {
+			writes.mockRestore();
+		}
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(reviewedStages).toHaveLength(3);
+		const row = await record();
+		expect(row.emailDraftReviewedAt).toBeNull();
+		if (fixture.accepted) {
+			expect(row.emailDraftStatus).toBe("READY");
+			expect(currentDraft(row, DEFAULT_TEMPLATES)?.stages).toEqual(
+				reviewedStages,
+			);
+		} else {
+			expect(row.emailDraftStatus).toBe("HELD");
+			expect(row.emailDrafts).toBeNull();
+			expect(row.emailDraftError).toContain("stage 2 question");
+		}
+		expect(await budget()).toMatchObject({ calls: 2, actualMicroUsd: 6000 });
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
+	},
+);
+
+test.each([
+	{
+		question: "Would trip reports interest you? Should we discuss that work?",
+		error: "exactly one question",
+	},
+	{
+		question: "Would trip reports\ninterest you for that work?",
+		error: "contains a line break",
+	},
+	{
+		question: "Would trip reports\rinterest you for that work?",
+		error: "contains a line break",
+	},
+	{
+		question: "Would trip reports\u2028interest you for that work?",
+		error: "contains a line break",
+	},
+	{
+		question: "Would Geotab savings interest you for that work?",
+		error: "prohibited number, commercial claim",
+	},
+	{
+		question: `Would ${"fleet activity ".repeat(21)}reporting interest you?`,
+		error: "AI drafting or validation failed",
+	},
+])(
+	"final question remains held before paid review: $error",
+	async (fixture) => {
+		expect(fixture.question.length).toBeLessThanOrEqual(350);
+		generate.mockResolvedValue({
+			text: JSON.stringify({
+				stages: sequence.stages.map((stage) => ({
+					...stage,
+					question: stage.stage === 2 ? fixture.question : stage.question,
+				})),
+			}),
+			costMicroUsd: 3000,
+			reviewRouteVerified: true,
+			finishReason: "stop",
+		});
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(1);
+		const row = await record();
+		expect(row.emailDraftStatus).toBe("HELD");
+		expect(row.emailDrafts).toBeNull();
+		expect(row.emailDraftError).toContain(fixture.error);
+		expect(await budget()).toMatchObject({ calls: 1, actualMicroUsd: 3000 });
+	},
+);
+
 test.each([0, 1, 2])(
 	"department question replacement does not repair a prohibited stage %s opening",
 	async (invalidStage) => {
