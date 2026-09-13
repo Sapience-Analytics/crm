@@ -8,7 +8,6 @@ import {
 } from "../lib/custom-agent-dispatch";
 import { brief, drainAll, taskAuth } from "../lib/dispatch";
 import { runOutreachContactResearch } from "../lib/outreach-contact-research";
-import { draftOutreachSequence } from "../lib/outreach-drafts";
 import { qualifyRequestedProspect } from "../lib/outreach-eligibility";
 import { runOutreachIntake } from "../lib/outreach-intake";
 import { runOutreachReferrals } from "../lib/outreach-referrals";
@@ -23,7 +22,6 @@ export default defineSchedule({
 			Promise.all([
 				qualifyRequestedProspect(),
 				runOutreachIntake(),
-				draftOutreachSequence(),
 				runOutreachResearch(),
 				runOutreachContactResearch(),
 				draftOutreachReply(),

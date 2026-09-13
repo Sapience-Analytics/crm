@@ -36,6 +36,7 @@ The [Spam Act](https://www.legislation.gov.au/Series/C2004A01214) defines consen
 
 ## Personalisation
 
+Automatic sequence drafting runs on a separate two-minute schedule; other dispatch work keeps its one-minute schedule.
 Every sequence uses verified company facts and the selected contact's published identity.
 The introduction links one relevant operation to an approved Geotab capability.
 The first follow-up adds a practical use case.

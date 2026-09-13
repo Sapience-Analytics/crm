@@ -227,8 +227,9 @@ resolver, and `lib/context-dev.ts` memoises its client on the key string.
   20. Both charge 2, because the budget rations calls per contact and a session
   with a budget of 4 must still be able to make two of them.
 - `lib/tasks.ts` — `claimDue` leases with `FOR UPDATE SKIP LOCKED`.
-- **`schedules/dispatch.ts` is the only schedule and decides nothing.** "Every N
-  minutes, the oldest ten contacts" belongs in a `dueAt`.
+- **`schedules/dispatch.ts` runs general work every minute and decides nothing.**
+  `schedules/outreach-drafts.ts` runs outreach drafting every two minutes.
+  Record selection and eligibility stay in each worker's `dueAt` checks.
 - `tools/schedule_recheck.ts` — its `reason` is shown to the rep.
 
 ## Three records, no dead ends
