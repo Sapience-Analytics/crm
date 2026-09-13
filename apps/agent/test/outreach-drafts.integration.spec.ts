@@ -242,14 +242,14 @@ test("generation separates verified recipient, selected contact and approved pro
 		expect(input.approvedProductCapabilities).toEqual(
 			OUTREACH_PRODUCT_CAPABILITIES,
 		);
-		expect(input.selectedContact).toEqual({
+		expect(input.selectedContact).toMatchObject({
 			kind: "named",
-			name: "Alex Example",
 			role: "operations",
 			roleTitle: "Operations Manager",
 		});
 		expect(input.verifiedSourceQuote).toBe(quote);
 		if (request.phase === "generation") {
+			expect(input.selectedContact).not.toHaveProperty("name");
 			expect(input.approvedSubject).toBe("Fleet needs at Draft Test");
 			expect(input.approvedTemplates).toBeUndefined();
 			expect(input.policy).toBeUndefined();
@@ -275,6 +275,7 @@ test("generation separates verified recipient, selected contact and approved pro
 				"Trailer-only evidence cannot support engine, fuel or idling use cases",
 			);
 		} else {
+			expect(input.selectedContact.name).toBe("Alex Example");
 			expect(input.approvedTemplates).toEqual(DEFAULT_TEMPLATES);
 			expect(input.stages[0].body).toStartWith("Hi Alex,");
 			expect(input.stages[1].body).toContain("Geotab trip reports");
@@ -435,9 +436,10 @@ test("department preparation persists the same routing copy that currentDraft va
 	};
 	generate.mockImplementation(async (request) => {
 		const input = JSON.parse(request.prompt);
-		expect(input.selectedContact.name).toBeNull();
-		if (request.phase === "generation")
+		if (request.phase === "generation") {
+			expect(input.selectedContact).not.toHaveProperty("name");
 			expect(input.departmentQuestions).toEqual(DEPARTMENT_QUESTIONS);
+		} else expect(input.selectedContact.name).toBeNull();
 		return {
 			text: JSON.stringify(request.phase === "review" ? review : generated),
 			costMicroUsd: 3000,
@@ -1009,6 +1011,58 @@ test.each([0, 1, 2])(
 			actualMicroUsd: 3000,
 			reservedMicroUsd: 3000,
 		});
+	},
+);
+
+test.each([
+	{
+		stage: 0,
+		field: "question" as const,
+		copy: "Would reporting be of interest for Alex Example?",
+	},
+	{
+		stage: 1,
+		field: "opening" as const,
+		copy: "Alex Example oversees vehicle activity across the haulage operation.",
+	},
+	{
+		stage: 1,
+		field: "question" as const,
+		copy: "Would trip reports interest Alex?",
+	},
+	{
+		stage: 2,
+		field: "question" as const,
+		copy: "Would trip history help Alex, or should I leave it there?",
+	},
+])(
+	"new stage $stage $field personal references stop before paid review",
+	async (fixture) => {
+		generate.mockResolvedValue({
+			text: JSON.stringify({
+				stages: sequence.stages.map((stage) =>
+					stage.stage === fixture.stage
+						? { ...stage, [fixture.field]: fixture.copy }
+						: stage,
+				),
+			}),
+			costMicroUsd: 3000,
+			reviewRouteVerified: true,
+			finishReason: "stop",
+		});
+		await draftOutreachSequence();
+		expect(generate).toHaveBeenCalledTimes(1);
+		const row = await record();
+		expect(row.emailDraftStatus).toBe("HELD");
+		expect(row.emailDrafts).toBeNull();
+		expect(row.emailDraftReviewedAt).toBeNull();
+		expect(row.emailDraftError).toContain(
+			`Stage ${fixture.stage}: Generated ${fixture.field} refers to the recipient by name`,
+		);
+		expect(await budget()).toMatchObject({ calls: 1, actualMicroUsd: 3000 });
+		expect(await db.outreachDelivery.count({ where: { prospectId: id } })).toBe(
+			0,
+		);
 	},
 );
 

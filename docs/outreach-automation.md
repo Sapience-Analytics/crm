@@ -43,6 +43,7 @@ The first follow-up adds a practical use case.
 The final follow-up asks a short relevance question and offers to close the conversation.
 The service supplies a missing stop choice in the final named-contact question before validation and independent review.
 Named contacts receive an interest question.
+New drafts address named recipients directly; generation excludes their names, while the application greeting and independent review retain verified identity.
 Department contacts receive the approved request for the responsible person.
 
 The approved subject, sender identification, product introduction, and unsubscribe instructions remain controlled blocks.

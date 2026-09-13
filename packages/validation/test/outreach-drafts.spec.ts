@@ -7,6 +7,7 @@ import {
 	draftArtifactSchema,
 	generatedSequenceSchema,
 	groundedSequence,
+	validateGeneratedRecipientAddress,
 } from "../src/outreach-drafts";
 
 const evidence = evidenceSchema.parse({
@@ -81,6 +82,136 @@ function validationMessage(generated: ReturnType<typeof sequence>) {
 	}
 	throw new Error("The invalid sequence unexpectedly passed validation");
 }
+
+describe("new generation addresses the selected recipient directly", () => {
+	test.each([
+		{
+			name: "Brett Niall",
+			copy: "Would trip history be of interest for Brett Niall?",
+		},
+		{
+			name: "Brett Niall",
+			copy: "Would trip history be of interest for Brett?",
+		},
+		{ name: "Brett Niall", copy: "Would trip reports interest Brett?" },
+		{
+			name: "Brett Niall",
+			copy: "Would trip reports help Brett at Proform Civil?",
+		},
+		{
+			name: "Brett Niall",
+			copy: "Would Brett's reporting interests include trip history?",
+		},
+		{
+			name: "Brett Niall",
+			copy: "Brett would benefit from trip history for fleet activity.",
+		},
+		{
+			name: "Élodie O’Connor",
+			copy: "Would trip history interest Élodie O'Connor?",
+		},
+		{ name: "Will", copy: "Would trip reports be of interest for Will?" },
+		{
+			name: "May",
+			copy: "Would trip reports be useful to May at Proform Civil?",
+		},
+	])(
+		"rejects personal reference $copy in either generated slot",
+		({ name, copy }) => {
+			for (const field of ["opening", "question"] as const) {
+				const generated = sequence();
+				const stage = generated.stages[1];
+				if (!stage) throw new Error("Missing follow-up fixture");
+				stage[field] = copy;
+				expect(() =>
+					validateGeneratedRecipientAddress(generated, evidence.company, {
+						kind: "named",
+						name,
+					}),
+				).toThrow(
+					`Stage 1: Generated ${field} refers to the recipient by name`,
+				);
+			}
+		},
+	);
+
+	test.each([
+		{
+			name: "Will Smith",
+			company: "Proform Civil",
+			copy: "Will trip reports interest you for that vehicle activity?",
+		},
+		{
+			name: "May Lee",
+			company: "Proform Civil",
+			copy: "May I ask whether trip reports interest you for vehicle activity?",
+		},
+		{
+			name: "Mark Lee",
+			company: "Proform Civil",
+			copy: "Trip reports can mark vehicle activity across the published operation.",
+		},
+		{
+			name: "Mark Lee",
+			company: "Proform Civil",
+			copy: "Trip reports help mark vehicle activity across the published operation.",
+		},
+		{
+			name: "Ann Lee",
+			company: "Proform Civil",
+			copy: "Maintenance planning supports that published vehicle operation.",
+		},
+		{
+			name: "John Holland",
+			company: "John Holland",
+			copy: "John Holland operates road vehicles. Would reporting for John Holland interest you?",
+		},
+		{
+			name: "Will",
+			company: "Will Transport",
+			copy: "Would trip history for Will Transport interest you?",
+		},
+	])(
+		"preserves ordinary words and company evidence: $copy",
+		({ name, company, copy }) => {
+			const generated = sequence();
+			const stage = generated.stages[1];
+			if (!stage) throw new Error("Missing follow-up fixture");
+			stage.opening = copy;
+			expect(() =>
+				validateGeneratedRecipientAddress(generated, company, {
+					kind: "named",
+					name,
+				}),
+			).not.toThrow();
+			expect(stage.opening).toBe(copy);
+		},
+	);
+
+	test("company-name masking does not conceal another personal reference", () => {
+		const generated = sequence();
+		const stage = generated.stages[1];
+		if (!stage) throw new Error("Missing follow-up fixture");
+		stage.question =
+			"Would trip reports for Will Transport be of interest for Will?";
+		expect(() =>
+			validateGeneratedRecipientAddress(generated, "Will Transport", {
+				kind: "named",
+				name: "Will",
+			}),
+		).toThrow("recipient by name");
+	});
+
+	test("leaves department copy to existing routing validation", () => {
+		const generated = sequence();
+		expect(() =>
+			validateGeneratedRecipientAddress(generated, evidence.company, {
+				kind: "department",
+				name: null,
+			}),
+		).not.toThrow();
+	});
+});
 
 describe("final named-contact stop choice", () => {
 	test.each([
