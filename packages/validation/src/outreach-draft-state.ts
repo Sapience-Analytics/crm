@@ -13,6 +13,7 @@ import {
 	PERSONALISATION,
 } from "@crm/validation/outreach-drafts";
 import type { z } from "zod";
+import { OUTREACH_AUTOMATION } from "./outreach-referrals";
 
 export function campaignHash(templates: z.infer<typeof templatesSchema>) {
 	return createHash("sha256")
@@ -21,6 +22,7 @@ export function campaignHash(templates: z.infer<typeof templatesSchema>) {
 				templates,
 				rules: OUTREACH,
 				personalisation: PERSONALISATION,
+				automation: OUTREACH_AUTOMATION,
 			}),
 		)
 		.digest("hex");

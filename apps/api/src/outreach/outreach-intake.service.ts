@@ -174,6 +174,11 @@ export class OutreachIntakeService {
 				where: { id },
 				data: {
 					evidence: { ...evidence, sourceQuote, verified: false },
+					eligibilityDueAt: new Date(),
+					eligibilityError: null,
+					eligibilityAssessment: Prisma.DbNull,
+					eligibilityLease: null,
+					eligibilityLeaseUntil: null,
 					stopReason: OUTREACH_INTAKE.revisionReason,
 					sourceVerificationAttempts: 0,
 					sourceVerificationDueAt: now,

@@ -23,6 +23,10 @@ import {
 	currentDraft,
 	draftReviewHash,
 } from "@crm/validation/outreach-draft-state";
+import {
+	type IncomingReferral,
+	OUTREACH_AUTOMATION,
+} from "@crm/validation/outreach-referrals";
 import { Injectable } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
 import { GmailSyncService } from "../google/gmail-sync.service";
@@ -31,10 +35,12 @@ import { ThreadWriterService } from "../mailbox/thread-writer.service";
 import { verifiedOutreachContact } from "./outreach-contact";
 import { OutreachGmail } from "./outreach-gmail";
 import { verifiedSentIdentity } from "./outreach-identity";
+import { captureOutreachInbound } from "./outreach-inbound";
 import {
 	classifyOutreachMessage,
 	storeOutreachMessage,
 } from "./outreach-message";
+import { pilotProgress } from "./outreach-pilot";
 
 @Injectable()
 export class OutreachDispatchService {
@@ -64,7 +70,7 @@ export class OutreachDispatchService {
 		});
 		if (!claimed.count) return { status: "idle" };
 		try {
-			const campaign = await this.db.outreachCampaign.findUniqueOrThrow({
+			let campaign = await this.db.outreachCampaign.findUniqueOrThrow({
 				where: { id: OUTREACH.id },
 			});
 			await this.report(campaign);
@@ -87,13 +93,14 @@ export class OutreachDispatchService {
 					campaignId: campaign.id,
 					manual: false,
 					initialSentAt: { not: null },
-					status: { in: ["ACTIVE", "COMPLETE"] },
+					status: { in: ["ACTIVE", "COMPLETE", "REPLIED"] },
 				},
 				orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }],
 				take: 5,
 			});
 			for (const prospect of monitor)
 				await this.inspect(campaign, prospect, token.accessToken);
+			campaign = await this.advancePilot(campaign);
 			if (!sendWindow(now) || !["PILOT", "ACTIVE"].includes(campaign.status))
 				return { status: "monitoring" };
 			if (!readinessSchema.safeParse(campaign.readiness).success)
@@ -115,7 +122,15 @@ export class OutreachDispatchService {
 					manual: false,
 					status: { in: ["READY", "ACTIVE"] },
 					nextDueAt: { lte: now },
-					pilotSlot: campaign.status === "PILOT" ? { not: null } : undefined,
+					OR:
+						campaign.status === "PILOT"
+							? [
+									{ pilotSlot: { not: null } },
+									{
+										referralParent: { pilotSlot: { not: null }, manual: false },
+									},
+								]
+							: undefined,
 				},
 				orderBy: [{ nextDueAt: "asc" }, { createdAt: "asc" }],
 				take: 20,
@@ -178,6 +193,21 @@ export class OutreachDispatchService {
 		token: string,
 	) {
 		if (!prospect.email || prospect.manual) return false;
+		if (prospect.referredFromId) {
+			const parent = await this.db.outreachProspect.findUniqueOrThrow({
+				where: { id: prospect.referredFromId },
+			});
+			await this.inspect(campaign, parent, token);
+			const currentParent = await this.db.outreachProspect.findUniqueOrThrow({
+				where: { id: parent.id },
+			});
+			if (
+				currentParent.manual ||
+				currentParent.status !== "REPLIED" ||
+				currentParent.referralDepth >= OUTREACH_AUTOMATION.maxReferralDepth
+			)
+				return false;
+		}
 		const suppressed = await this.db.outreachSuppression.findUnique({
 			where: { email: prospect.email },
 		});
@@ -251,16 +281,36 @@ export class OutreachDispatchService {
 				allIds.add(message.id);
 		}
 		const known = new Set(ours.map((row) => row.gmailMessageId));
+		const recorded = await this.db.outreachInbound.findMany({
+			where: { prospectId: prospect.id },
+			select: { messageId: true },
+		});
+		for (const row of recorded) known.add(row.messageId);
+		const threadIds = new Set(
+			ours.flatMap((row) => (row.gmailThreadId ? [row.gmailThreadId] : [])),
+		);
 		for (const id of allIds) {
 			if (known.has(id)) continue;
 			const message = await this.gmail.message(token, id);
 			const { status, body } = classifyOutreachMessage(message);
+			const incoming = captureOutreachInbound(
+				message,
+				body.slice(0, OUTREACH_AUTOMATION.referralMaxBodyChars),
+				threadIds,
+			);
+			if (
+				incoming &&
+				new Date(incoming.receivedAt) <
+					(prospect.initialSentAt ?? prospect.createdAt)
+			)
+				continue;
 			if (message.labelIds?.includes("SENT")) {
 				await this.stop(
 					prospect,
 					"REPLIED",
 					"A manual outbound email exists. Automation is paused.",
 					null,
+					{ id, incoming: null },
 				);
 				return false;
 			}
@@ -269,6 +319,7 @@ export class OutreachDispatchService {
 				status,
 				"A new mailbox message requires attention",
 				body.slice(0, 8000),
+				{ id, incoming },
 			);
 			return false;
 		}
@@ -284,8 +335,53 @@ export class OutreachDispatchService {
 		status: string,
 		reason: string,
 		reply: string | null,
+		observation?: { id: string; incoming: IncomingReferral | null },
 	) {
 		await this.db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${prospect.campaignId} FOR UPDATE`;
+			await tx.$queryRaw`SELECT id FROM "outreachProspect" WHERE id = ${prospect.id} FOR UPDATE`;
+			const current = await tx.outreachProspect.findUniqueOrThrow({
+				where: { id: prospect.id },
+			});
+			if (observation) {
+				if (
+					await tx.outreachInbound.findUnique({
+						where: {
+							prospectId_messageId: {
+								prospectId: prospect.id,
+								messageId: observation.id,
+							},
+						},
+					})
+				)
+					return;
+				await tx.outreachInbound.create({
+					data: {
+						prospectId: prospect.id,
+						messageId: observation.id,
+						message: observation.incoming ?? {
+							captureError:
+								"Gmail identity metadata is unavailable or ambiguous",
+						},
+						classification: status,
+					},
+				});
+			}
+			if (
+				["SUPPRESSED", "BOUNCED", "BOOKED"].includes(current.status) &&
+				status === "REPLIED"
+			)
+				return;
+			const receivedAt = observation?.incoming
+				? new Date(observation.incoming.receivedAt)
+				: null;
+			if (
+				status === "REPLIED" &&
+				receivedAt &&
+				current.replyReceivedAt &&
+				receivedAt < current.replyReceivedAt
+			)
+				return;
 			await tx.outreachProspect.update({
 				where: { id: prospect.id },
 				data: {
@@ -293,9 +389,58 @@ export class OutreachDispatchService {
 					stoppedAt: new Date(),
 					stopReason: reason,
 					replyText: reply,
+					replyReceivedAt: receivedAt ?? undefined,
+					replyDraft: null,
+					replyDraftAttempts: 0,
+					replyDraftDueAt: new Date(),
+					replyDraftLeaseUntil: null,
 					lastCheckedAt: new Date(),
 				},
 			});
+			if (
+				status === "REPLIED" &&
+				observation?.incoming &&
+				!current.manual &&
+				current.initialSentAt
+			) {
+				await tx.outreachReferral.create({
+					data: {
+						prospectId: current.id,
+						messageId: observation.id,
+						message: observation.incoming,
+					},
+				});
+			}
+			if (status === "REPLIED" && observation) {
+				await tx.outreachProspect.updateMany({
+					where: {
+						referredFromId: current.id,
+						status: { in: ["HELD", "READY", "ACTIVE"] },
+					},
+					data: {
+						status: "REPLIED",
+						stoppedAt: new Date(),
+						stopReason:
+							"A new reply in the original conversation requires attention",
+						replyDraft: null,
+					},
+				});
+			}
+			if (["SUPPRESSED", "BOUNCED", "BOOKED"].includes(status)) {
+				await tx.outreachProspect.updateMany({
+					where: {
+						campaignId: current.campaignId,
+						domain: current.domain,
+						id: { not: current.id },
+					},
+					data: {
+						status,
+						stoppedAt: new Date(),
+						stopReason: `Related company sequence stopped: ${reason}`,
+						replyDraft: null,
+					},
+				});
+			}
 			if (prospect.email && ["BOUNCED", "SUPPRESSED"].includes(status))
 				await tx.outreachSuppression.upsert({
 					where: { email: prospect.email },
@@ -359,6 +504,11 @@ export class OutreachDispatchService {
 				where: { id: prospect.id },
 			});
 			const currentTemplates = templatesSchema.parse(current.templates);
+			const parent = target.referredFromId
+				? await tx.outreachProspect.findUnique({
+						where: { id: target.referredFromId },
+					})
+				: null;
 			const artifact = currentDraft(target, currentTemplates);
 			const content = artifact?.stages[target.nextStage];
 			const suppressed = target.email
@@ -380,6 +530,15 @@ export class OutreachDispatchService {
 			});
 			if (
 				current.sendLease !== lease ||
+				(target.referredFromId !== null &&
+					(!parent ||
+						parent.manual ||
+						parent.status !== "REPLIED" ||
+						parent.domain !== target.domain ||
+						target.referralDepth > OUTREACH_AUTOMATION.maxReferralDepth)) ||
+				(current.status === "PILOT" &&
+					target.pilotSlot === null &&
+					!parent?.pilotSlot) ||
 				!current.sendLeaseUntil ||
 				current.sendLeaseUntil <= now ||
 				!sendWindow(now) ||
@@ -650,19 +809,66 @@ export class OutreachDispatchService {
 		});
 	}
 
+	private async advancePilot(campaign: OutreachCampaignModel) {
+		if (campaign.status !== "PILOT") return campaign;
+		return this.db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${campaign.id} FOR UPDATE`;
+			const current = await tx.outreachCampaign.findUniqueOrThrow({
+				where: { id: campaign.id },
+			});
+			if (
+				current.status !== "PILOT" ||
+				current.approvedHash !==
+					campaignHash(templatesSchema.parse(current.templates)) ||
+				!readinessSchema.safeParse(current.readiness).success
+			)
+				return current;
+			const progress = await pilotProgress(tx, current.id, new Date());
+			if (!progress.ready && !progress.blocked) return current;
+			return tx.outreachCampaign.update({
+				where: { id: current.id },
+				data: {
+					status: progress.blocked ? "PAUSED" : "ACTIVE",
+					pilotPassedAt: progress.ready ? new Date() : undefined,
+					lastError: progress.blocked ? progress.reason : null,
+				},
+			});
+		});
+	}
+
 	private async report(campaign: OutreachCampaignModel) {
-		const end = weekStart(new Date());
-		const start = new Date(end.getTime() - OUTREACH.dayMs * 7);
-		if (campaign.createdAt >= end) return;
+		const currentWeek = weekStart(new Date());
+		if (campaign.createdAt >= currentWeek) return;
+		const existing = new Set(
+			(
+				await this.db.outreachReport.findMany({
+					where: { campaignId: campaign.id },
+					select: { week: true },
+				})
+			).map((row) => row.week.toISOString()),
+		);
+		const start = weekStart(campaign.createdAt);
+		while (existing.has(start.toISOString()))
+			start.setTime(start.getTime() + OUTREACH.dayMs * 7);
+		if (start >= currentWeek) return;
+		const end = new Date(start.getTime() + OUTREACH.dayMs * 7);
 		const id = `${campaign.id}:${perthDay(start)}`;
 		if (await this.db.outreachReport.findUnique({ where: { id } })) return;
 		const [researched, sent, replies, meetings, held, budgets, eligible] =
 			await Promise.all([
 				this.db.outreachProspect.count({
-					where: { createdAt: { gte: start, lt: end } },
+					where: {
+						campaignId: campaign.id,
+						referredFromId: null,
+						createdAt: { gte: start, lt: end },
+					},
 				}),
 				this.db.outreachDelivery.count({
-					where: { status: "SENT", sentAt: { gte: start, lt: end } },
+					where: {
+						prospect: { campaignId: campaign.id },
+						status: "SENT",
+						sentAt: { gte: start, lt: end },
+					},
 				}),
 				this.db.outreachProspect.count({
 					where: { status: "REPLIED", stoppedAt: { gte: start, lt: end } },

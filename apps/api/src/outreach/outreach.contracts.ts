@@ -31,6 +31,9 @@ export const reviewDraftsInput = z.object({
 });
 export const outreachPageInput = z.object({
 	page: z.number().int().min(0).default(0),
+	view: z
+		.enum(["all", "replies", "referrals", "qualification", "deliveries"])
+		.default("all"),
 });
 export const outreachResult = z.object({ ok: z.boolean() });
 export const outreachStatusOutput = z.object({
@@ -43,9 +46,24 @@ export const outreachStatusOutput = z.object({
 	sendConnected: z.boolean(),
 	ready: z.boolean(),
 	pilotReady: z.boolean(),
+	pilotProgress: z.object({
+		ready: z.boolean(),
+		blocked: z.boolean(),
+		reason: z.string(),
+	}),
 	pilotCount: z.number(),
 	draftReadyCount: z.number(),
 	reviewedCount: z.number(),
+	reviewQueue: z.object({
+		replies: z.number(),
+		referrals: z.number(),
+		qualification: z.number(),
+		deliveries: z.number(),
+	}),
+	deliveries: z.object({
+		inProgress: z.number(),
+		unconfirmed: z.number(),
+	}),
 	aiPausedReason: z.string().nullable(),
 	lastError: z.string().nullable(),
 	researchError: z.string().nullable(),
@@ -82,7 +100,39 @@ export const outreachProspectsOutput = z.object({
 			verified: z.boolean(),
 			consent: z.json().nullable(),
 			replyDraft: z.string().nullable(),
+			replyText: z.string().nullable(),
 			stopReason: z.string().nullable(),
+			stoppedAt: z.string().nullable(),
+			eligibilityError: z.string().nullable(),
+			referralDepth: z.number(),
+			referredFrom: z
+				.object({
+					id: z.string(),
+					company: z.string(),
+					email: z.string().nullable(),
+					status: z.string(),
+					stoppedAt: z.string().nullable(),
+				})
+				.nullable(),
+			referrals: z.array(
+				z.object({
+					id: z.string(),
+					status: z.string(),
+					reason: z.string().nullable(),
+					recipientEmail: z.string().nullable(),
+					recipientName: z.string().nullable(),
+					createdAt: z.string(),
+				}),
+			),
+			deliveries: z.array(
+				z.object({
+					id: z.string(),
+					stage: z.number(),
+					status: z.string(),
+					error: z.string().nullable(),
+					createdAt: z.string(),
+				}),
+			),
 			draft: draftViewSchema,
 		}),
 	),

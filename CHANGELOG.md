@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.0](https://github.com/Sapience-Analytics/crm/compare/v1.19.4...v1.20.0) (2026-09-13)
+
+
+### Features
+
+* **outreach:** automate verified referrals and personalised prospect progression ([#53](https://github.com/Sapience-Analytics/crm/issues/53)) ([949e662](https://github.com/Sapience-Analytics/crm/commit/949e662e291e49afcdb312fd8b05c12cabe05897))
+
 ## [1.19.4](https://github.com/Sapience-Analytics/crm/compare/v1.19.3...v1.19.4) (2026-09-12)
 
 

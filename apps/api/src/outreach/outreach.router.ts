@@ -48,7 +48,7 @@ export class OutreachRouter {
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof outreachPageInput>,
 	) {
-		return this.service.prospects(ctx.user.id, input.page);
+		return this.service.prospects(ctx.user.id, input.page, input.view);
 	}
 	@Mutation({ output: outreachResult })
 	initialize(@Ctx() ctx: AuthedTrpcContext) {
