@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.4](https://github.com/Sapience-Analytics/crm/compare/v1.20.3...v1.20.4) (2026-09-13)
+
+
+### Fixes
+
+* **agent:** address outreach recipients directly ([3ea7e84](https://github.com/Sapience-Analytics/crm/commit/3ea7e84a275303ddfe0cbe9f49840b02dfe25907))
+
 ## [1.20.3](https://github.com/Sapience-Analytics/crm/compare/v1.20.2...v1.20.3) (2026-09-13)
 
 
