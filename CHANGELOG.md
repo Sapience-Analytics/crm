@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.3](https://github.com/Sapience-Analytics/crm/compare/v1.20.2...v1.20.3) (2026-09-13)
+
+
+### Fixes
+
+* **agent:** assemble the final outreach stop option ([7238048](https://github.com/Sapience-Analytics/crm/commit/7238048031ff69cc74ca6bd0fa1a83f9e9f9151a))
+
 ## [1.20.2](https://github.com/Sapience-Analytics/crm/compare/v1.20.1...v1.20.2) (2026-09-13)
 
 
