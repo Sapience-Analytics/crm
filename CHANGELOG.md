@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.1](https://github.com/Sapience-Analytics/crm/compare/v1.20.0...v1.20.1) (2026-09-13)
+
+
+### Fixes
+
+* **outreach:** write direct personalised follow-ups ([6ab599b](https://github.com/Sapience-Analytics/crm/commit/6ab599befbf8b3b3b7b860a6f6b409d891a5be3f))
+
 ## [1.20.0](https://github.com/Sapience-Analytics/crm/compare/v1.19.4...v1.20.0) (2026-09-13)
 
 
