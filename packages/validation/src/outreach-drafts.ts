@@ -192,6 +192,37 @@ function comparableCopy(value: string) {
 		.trim();
 }
 
+export function validateGeneratedRecipientAddress(
+	sequence: z.infer<typeof generatedSequenceSchema>,
+	company: string,
+	target: Pick<z.infer<typeof contactTargetSchema>, "kind" | "name">,
+) {
+	if (target.kind !== "named" || !target.name) return;
+	const name = comparableCopy(target.name);
+	const first = comparableCopy(target.name.split(/\s+/)[0] ?? "");
+	const companyPattern = new RegExp(
+		`(^| )${comparableCopy(company)}(?= |$)`,
+		"g",
+	);
+	const firstNameReference = new RegExp(
+		`(?:^| )(?:for|to|about|interests?|helps?|supports?|suits?|benefits?) ${first}(?: (?:at|from|of|or|and|to)(?: |$)|$)|(?:^| )${first} (?:s|is|has|wants?|needs?|prefers?|would|could|should|does|did)(?: |$)`,
+	);
+	for (const stage of sequence.stages) {
+		for (const field of ["opening", "question"] as const) {
+			const copy = comparableCopy(stage[field])
+				.replace(companyPattern, "$1")
+				.trim();
+			if (
+				(name.includes(" ") && ` ${copy} `.includes(` ${name} `)) ||
+				firstNameReference.test(copy)
+			)
+				throw new DraftValidationError(
+					`Stage ${stage.stage}: Generated ${field} refers to the recipient by name. Address the recipient directly; the application supplies the greeting.`,
+				);
+		}
+	}
+}
+
 export function groundedSequence(
 	sequence: z.infer<typeof generatedSequenceSchema>,
 	templates: z.infer<typeof templatesSchema>,
