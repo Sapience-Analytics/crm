@@ -9,6 +9,12 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "@crm/ui/components/empty";
 import { Input } from "@crm/ui/components/input";
 import { Label } from "@crm/ui/components/label";
 import {
@@ -25,9 +31,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
+import { CampaignReviewQueue, type ReviewView } from "./campaign-review-queue";
+import { CampaignWorkflow } from "./campaign-workflow";
 import { CandidateIntake } from "./candidate-intake";
 import { ContactResearch } from "./contact-research";
 import { ControlledTests } from "./controlled-tests";
+import { ProspectWorkflow } from "./prospect-workflow";
 import { SourceQuoteRevision } from "./source-quote-revision";
 
 type Templates = {
@@ -42,6 +51,7 @@ export function GeotabCampaign() {
 	const trpc = useTRPC();
 	const cache = useCrmCache();
 	const [page, setPage] = useState(0);
+	const [view, setView] = useState<ReviewView>("all");
 	const [oauth] = useQueryStates({
 		error: parseAsString,
 		error_description: parseAsString,
@@ -51,7 +61,7 @@ export function GeotabCampaign() {
 		refetchInterval: 30_000,
 	});
 	const prospects = useQuery({
-		...trpc.outreach.prospects.queryOptions({ page }),
+		...trpc.outreach.prospects.queryOptions({ page, view }),
 		refetchInterval: 30_000,
 	});
 	const options = {
@@ -92,8 +102,8 @@ export function GeotabCampaign() {
 				</CardHeader>
 				<CardContent>
 					<p>
-						50 new WA prospects each week. Pilot: 10 automatic and 2 manual.
-						Manual prospects never enter automation.
+						Target: 50 new WA prospects each week. Pilot: 10 automatic and 2
+						manual. Manual prospects never enter automation.
 					</p>
 					<p>
 						Weekdays, 10 am–3 pm Perth time. Up to 10 initial emails and 30
@@ -119,6 +129,14 @@ export function GeotabCampaign() {
 						{campaign.draftReadyCount}/12 have all three AI drafts ·{" "}
 						{campaign.reviewedCount}/12 previews reviewed.
 					</p>
+					<CampaignWorkflow campaign={campaign} />
+					{campaign.status !== "ACTIVE" && (
+						<p role="status">
+							{campaign.pilotProgress.ready
+								? "Pilot expansion checks pass."
+								: campaign.pilotProgress.reason}
+						</p>
+					)}
 					<div className="flex flex-wrap gap-2">
 						<Button
 							variant="outline"
@@ -160,11 +178,12 @@ export function GeotabCampaign() {
 								action.isPending ||
 								!campaign.approved ||
 								!campaign.ready ||
-								!campaign.sendConnected
+								!campaign.sendConnected ||
+								!campaign.pilotProgress.ready
 							}
 							onClick={() => action.mutate({ action: "start-active" })}
 						>
-							Accept pilot and start weekly campaign
+							Start weekly campaign after pilot checks
 						</Button>
 					</div>
 					{!campaign.sendConnected &&
@@ -215,8 +234,8 @@ export function GeotabCampaign() {
 				}
 			>
 				{campaign.approved
-					? "Templates and AI personalisation rules approved"
-					: "Approve templates and AI personalisation rules"}
+					? "Templates and automated workflow approved"
+					: "Approve templates and automated workflow"}
 			</Button>
 			<CandidateIntake />
 			<ControlledTests sendConnected={campaign.sendConnected} />
@@ -254,7 +273,26 @@ export function GeotabCampaign() {
 					))}
 				</CardContent>
 			</Card>
+			<CampaignReviewQueue
+				counts={campaign.reviewQueue}
+				view={view}
+				onViewChange={(next) => {
+					setView(next);
+					setPage(0);
+				}}
+			/>
 			{prospects.error && <p role="alert">{prospects.error.message}</p>}
+			{prospects.isPending && <p role="status">Loading prospects…</p>}
+			{prospects.data?.rows.length === 0 && (
+				<Empty>
+					<EmptyHeader>
+						<EmptyTitle>No prospects in this view</EmptyTitle>
+						<EmptyDescription>
+							Choose another queue or return to all prospects.
+						</EmptyDescription>
+					</EmptyHeader>
+				</Empty>
+			)}
 			{prospects.data?.rows.map((prospect) => (
 				<Card key={prospect.id} role="region" aria-label={prospect.company}>
 					<CardHeader>
@@ -273,6 +311,7 @@ export function GeotabCampaign() {
 							Review company source
 						</a>
 						<p>{prospect.stopReason}</p>
+						<ProspectWorkflow prospect={prospect} />
 						{["HELD", "READY", "MANUAL"].includes(prospect.status) && (
 							<ContactResearch
 								id={prospect.id}
@@ -381,8 +420,15 @@ export function GeotabCampaign() {
 							prospect.email && <QualifyProspect id={prospect.id} />}
 						{prospect.replyDraft && (
 							<>
-								<Label>Reply draft — review and send yourself</Label>
-								<Textarea readOnly value={prospect.replyDraft} rows={8} />
+								<Label htmlFor={`reply-draft-${prospect.id}`}>
+									Reply draft — review and send yourself
+								</Label>
+								<Textarea
+									id={`reply-draft-${prospect.id}`}
+									readOnly
+									value={prospect.replyDraft}
+									rows={8}
+								/>
 								<Button
 									variant="outline"
 									onClick={() =>

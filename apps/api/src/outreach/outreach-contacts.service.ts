@@ -148,6 +148,11 @@ export class OutreachContactsService {
 						verified: false,
 					},
 					consent: identityChanged ? Prisma.DbNull : undefined,
+					eligibilityDueAt: now,
+					eligibilityError: null,
+					eligibilityAssessment: Prisma.DbNull,
+					eligibilityLease: null,
+					eligibilityLeaseUntil: null,
 					status: identityChanged ? "HELD" : prospect.status,
 					stopReason: identityChanged
 						? "Contact selection requires source verification and new contact qualification. Sending is paused."

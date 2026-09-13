@@ -14,6 +14,7 @@ import {
 	currentDraft,
 	draftReviewHash,
 } from "@crm/validation/outreach-draft-state";
+import { referralDecisionSchema } from "@crm/validation/outreach-referrals";
 import {
 	BadRequestException,
 	ForbiddenException,
@@ -24,9 +25,11 @@ import { InjectDatabase } from "../database/database.constants";
 import { MailboxTokenService } from "../mailbox/mailbox-token.service";
 import type {
 	campaignActionInput,
+	outreachPageInput,
 	prospectApproveInput,
 } from "./outreach.contracts";
 import { verifiedOutreachContact } from "./outreach-contact";
+import { pilotProgress } from "./outreach-pilot";
 
 @Injectable()
 export class OutreachService {
@@ -70,7 +73,17 @@ export class OutreachService {
 			row?.templates ?? DEFAULT_TEMPLATES,
 		);
 		const hash = campaignHash(templates);
-		const [counts, budgets, reports, scopes, pilot] = await Promise.all([
+		const [
+			counts,
+			budgets,
+			reports,
+			scopes,
+			pilot,
+			deliveryStates,
+			referralHolds,
+			unsettledProspects,
+			expansion,
+		] = await Promise.all([
 			this.db.outreachProspect.groupBy({
 				by: ["status"],
 				where: { campaignId: OUTREACH.id },
@@ -94,6 +107,27 @@ export class OutreachService {
 			this.db.outreachProspect.findMany({
 				where: { campaignId: OUTREACH.id, pilotSlot: { not: null } },
 			}),
+			this.db.outreachDelivery.groupBy({
+				by: ["status"],
+				where: {
+					prospect: { campaignId: OUTREACH.id },
+					status: { in: ["SENDING", "UNKNOWN"] },
+				},
+				_count: true,
+			}),
+			this.db.outreachProspect.count({
+				where: {
+					campaignId: OUTREACH.id,
+					referrals: { some: { status: "HELD" } },
+				},
+			}),
+			this.db.outreachProspect.count({
+				where: {
+					campaignId: OUTREACH.id,
+					deliveries: { some: { status: { in: ["SENDING", "UNKNOWN"] } } },
+				},
+			}),
+			pilotProgress(this.db, OUTREACH.id, new Date()),
 		]);
 		const draftReadyCount = pilot.filter((prospect) =>
 			currentDraft(prospect, templates),
@@ -148,8 +182,25 @@ export class OutreachService {
 			sendConnected: scopes.has("https://www.googleapis.com/auth/gmail.send"),
 			ready: readinessSchema.safeParse(row?.readiness).success,
 			pilotCount: pilot.length,
+			pilotProgress: expansion,
 			draftReadyCount,
 			reviewedCount,
+			reviewQueue: {
+				replies:
+					counts.find((group) => group.status === "REPLIED")?._count ?? 0,
+				referrals: referralHolds,
+				qualification:
+					counts.find((group) => group.status === "HELD")?._count ?? 0,
+				deliveries: unsettledProspects,
+			},
+			deliveries: {
+				inProgress:
+					deliveryStates.find((group) => group.status === "SENDING")?._count ??
+					0,
+				unconfirmed:
+					deliveryStates.find((group) => group.status === "UNKNOWN")?._count ??
+					0,
+			},
 			pilotReady:
 				pilot.length === OUTREACH.pilotSize &&
 				eligibleCount === OUTREACH.pilotSize &&
@@ -333,6 +384,8 @@ export class OutreachService {
 					}
 				}
 				if (input.action === "start-active") {
+					const progress = await pilotProgress(tx, row.id, new Date());
+					if (!progress.ready) throw new BadRequestException(progress.reason);
 					const sent = await tx.outreachDelivery.count({
 						where: {
 							stage: 0,
@@ -434,6 +487,7 @@ export class OutreachService {
 	async stop(userId: string, id: string) {
 		await this.assertOwner(userId);
 		await this.db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT id FROM "outreachCampaign" WHERE id = ${OUTREACH.id} FOR UPDATE`;
 			const row = await tx.outreachProspect.update({
 				where: { id, campaignId: OUTREACH.id },
 				data: {
@@ -448,11 +502,28 @@ export class OutreachService {
 					update: {},
 					create: { email: row.email, reason: "Stopped by campaign owner" },
 				});
+			await tx.outreachProspect.updateMany({
+				where: {
+					campaignId: row.campaignId,
+					domain: row.domain,
+					id: { not: row.id },
+				},
+				data: {
+					status: "SUPPRESSED",
+					stoppedAt: new Date(),
+					stopReason: "Related company sequence stopped by campaign owner",
+					replyDraft: null,
+				},
+			});
 		});
 		return { ok: true };
 	}
 
-	async prospects(userId: string, page: number) {
+	async prospects(
+		userId: string,
+		page: number,
+		view: z.infer<typeof outreachPageInput>["view"] = "all",
+	) {
 		await this.assertOwner(userId);
 		const campaign = await this.db.outreachCampaign.findUnique({
 			where: { id: OUTREACH.id },
@@ -460,13 +531,52 @@ export class OutreachService {
 		const templates = templatesSchema.parse(
 			campaign?.templates ?? DEFAULT_TEMPLATES,
 		);
-		const where = { campaignId: OUTREACH.id };
+		const where: Prisma.OutreachProspectWhereInput = {
+			campaignId: OUTREACH.id,
+		};
+		if (view === "replies") where.status = "REPLIED";
+		if (view === "qualification") where.status = "HELD";
+		if (view === "referrals") where.referrals = { some: { status: "HELD" } };
+		if (view === "deliveries")
+			where.deliveries = { some: { status: { in: ["SENDING", "UNKNOWN"] } } };
 		const [rows, total] = await Promise.all([
 			this.db.outreachProspect.findMany({
 				where,
 				orderBy: { createdAt: "desc" },
 				skip: page * 50,
 				take: 50,
+				include: {
+					referralParent: {
+						select: {
+							id: true,
+							evidence: true,
+							email: true,
+							status: true,
+							stoppedAt: true,
+						},
+					},
+					referrals: {
+						select: {
+							id: true,
+							status: true,
+							decision: true,
+							error: true,
+							createdAt: true,
+						},
+						orderBy: { createdAt: "desc" },
+					},
+					deliveries: {
+						where: { status: { in: ["SENDING", "UNKNOWN"] } },
+						select: {
+							id: true,
+							stage: true,
+							status: true,
+							lastError: true,
+							createdAt: true,
+						},
+						orderBy: { createdAt: "desc" },
+					},
+				},
 			}),
 			this.db.outreachProspect.count({ where }),
 		]);
@@ -490,7 +600,44 @@ export class OutreachService {
 					verified: evidence.verified,
 					consent: row.consent,
 					replyDraft: row.replyDraft,
+					replyText: row.replyText,
 					stopReason: row.stopReason,
+					stoppedAt: row.stoppedAt?.toISOString() ?? null,
+					eligibilityError: row.eligibilityError,
+					referralDepth: row.referralDepth,
+					referredFrom: row.referralParent
+						? {
+								id: row.referralParent.id,
+								company: evidenceSchema.parse(row.referralParent.evidence)
+									.company,
+								email: row.referralParent.email,
+								status: row.referralParent.status,
+								stoppedAt: row.referralParent.stoppedAt?.toISOString() ?? null,
+							}
+						: null,
+					referrals: row.referrals.map((referral) => {
+						const parsed = referralDecisionSchema.safeParse(referral.decision);
+						const decision = parsed.success ? parsed.data : null;
+						return {
+							id: referral.id,
+							status: referral.status,
+							reason:
+								referral.error ??
+								(decision?.kind === "none" ? decision.reason : null),
+							recipientEmail:
+								decision?.kind === "referral" ? decision.email : null,
+							recipientName:
+								decision?.kind === "referral" ? decision.name : null,
+							createdAt: referral.createdAt.toISOString(),
+						};
+					}),
+					deliveries: row.deliveries.map((delivery) => ({
+						id: delivery.id,
+						stage: delivery.stage,
+						status: delivery.status,
+						error: delivery.lastError,
+						createdAt: delivery.createdAt.toISOString(),
+					})),
 					draft: {
 						status: draft
 							? "READY"
