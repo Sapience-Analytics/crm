@@ -45,6 +45,7 @@ export const PERSONALISATION = {
 } as const;
 
 export const DRAFTING = {
+	scheduleCron: "*/2 * * * *",
 	model: OUTREACH.replyModel,
 	reviewModel: "openai/gpt-5.4-mini-fast",
 	reviewExpectedInputPrice: 0.0000015,
